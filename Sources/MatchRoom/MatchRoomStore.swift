@@ -2,19 +2,26 @@ import Foundation
 
 @MainActor
 final class MatchRoomStore: ObservableObject {
-    @Published var apiBaseURL = SettingsStore.loadAPIBaseURL()
+    @Published var databaseSettings = SettingsStore.loadDatabaseSettings()
     @Published var matches: [TennisMatch] = []
+    @Published var oddsetMatches: [OddsetMatch] = []
     @Published var rankings: [RankedPlayer] = []
-    @Published var selectedMatchID: Int?
+    @Published var selectedMatchID: String?
+    @Published var selectedOddsetMatchID: String?
     @Published var selectedSurface = SettingsStore.loadModelSurface()
     @Published var intelligence: MatchIntelligence?
+    @Published var dashboard: MatchDashboard?
     @Published var isLoading = false
     @Published var isLoadingIntelligence = false
+    @Published var isLoadingDashboard = false
     @Published var status: MatchRoomStatus = .idle
-    @Published var serviceVersion = "-"
 
     var selectedMatch: TennisMatch? {
         matches.first { $0.id == selectedMatchID } ?? matches.first
+    }
+
+    var selectedOddsetMatch: OddsetMatch? {
+        oddsetMatches.first { $0.id == selectedOddsetMatchID } ?? oddsetMatches.first
     }
 
     func refresh() {
@@ -29,30 +36,26 @@ final class MatchRoomStore: ObservableObject {
         }
 
         isLoading = true
-        status = .loading("Refreshing tennis room...")
+        status = .loading("Reading matches...")
 
-        do {
-            let api = MatchRoomAPI(baseURLString: apiBaseURL)
-            async let ping = api.ping()
-            async let oddset = api.oddsetMatches()
-            async let rankingRows = api.rankings(top: 30)
+        let oddsetSnapshot = await loadOddsetMatches()
 
-            let (servicePing, fetchedMatches, fetchedRankings) = try await (ping, oddset, rankingRows)
-            serviceVersion = servicePing.version
-            matches = fetchedMatches.sorted(by: sortMatches)
-            rankings = fetchedRankings
-
-            if selectedMatchID == nil || !matches.contains(where: { $0.id == selectedMatchID }) {
-                selectedMatchID = matches.first?.id
+        switch oddsetSnapshot {
+        case .success(let matches):
+            oddsetMatches = matches
+            if selectedOddsetMatchID == nil || !matches.contains(where: { $0.id == selectedOddsetMatchID }) {
+                selectedOddsetMatchID = matches.first?.id
             }
-
-            isLoading = false
-            status = .ready("Loaded \(matches.count) matches and \(rankings.count) ranked players.")
-            await loadIntelligenceForSelectedMatch()
-        } catch {
-            isLoading = false
-            status = .failed(error.localizedDescription)
+            status = .ready("Loaded \(matches.filter { $0.state == .live }.count) live and \(matches.filter { $0.state == .upcoming }.count) upcoming matches.")
+            await loadDashboardForSelectedOddsetMatch()
+        case .failure:
+            oddsetMatches = []
+            selectedOddsetMatchID = nil
+            dashboard = nil
+            status = .failed("Matches unavailable.")
         }
+
+        isLoading = false
     }
 
     func select(match: TennisMatch) {
@@ -63,17 +66,27 @@ final class MatchRoomStore: ObservableObject {
         }
     }
 
+    func select(oddsetMatch: OddsetMatch) {
+        selectedOddsetMatchID = oddsetMatch.id
+        dashboard = nil
+        Task {
+            await loadDashboardForSelectedOddsetMatch()
+        }
+    }
+
     func changeSurface(_ surface: TennisSurface) {
         selectedSurface = surface
         SettingsStore.save(modelSurface: surface)
         intelligence = nil
+        dashboard = nil
         Task {
             await loadIntelligenceForSelectedMatch()
+            await loadDashboardForSelectedOddsetMatch()
         }
     }
 
-    func saveBaseURL() {
-        SettingsStore.save(apiBaseURL: apiBaseURL)
+    func saveDatabaseSettings() {
+        SettingsStore.save(databaseSettings: databaseSettings)
     }
 
     func loadIntelligenceForSelectedMatch() async {
@@ -81,14 +94,10 @@ final class MatchRoomStore: ObservableObject {
             return
         }
 
-        let playerA = match.playerA.id ?? match.playerA.name
-        let playerB = match.playerB.id ?? match.playerB.name
-
         isLoadingIntelligence = true
         do {
-            let api = MatchRoomAPI(baseURLString: apiBaseURL)
-            let odds = try await api.odds(playerA: playerA, playerB: playerB, surface: selectedSurface)
-            intelligence = MatchIntelligence(matchID: match.id, surface: selectedSurface, odds: odds)
+            let database = ATPDatabase(settings: databaseSettings)
+            intelligence = try await database.loadIntelligence(match: match, surface: selectedSurface)
             isLoadingIntelligence = false
         } catch {
             intelligence = nil
@@ -96,11 +105,43 @@ final class MatchRoomStore: ObservableObject {
         }
     }
 
-    private func sortMatches(_ lhs: TennisMatch, _ rhs: TennisMatch) -> Bool {
-        if lhs.isLive != rhs.isLive {
-            return lhs.isLive && !rhs.isLive
+    func loadDashboardForSelectedOddsetMatch() async {
+        guard let match = selectedOddsetMatch else {
+            dashboard = nil
+            return
         }
 
-        return lhs.start < rhs.start
+        isLoadingDashboard = true
+        do {
+            let database = ATPDatabase(settings: databaseSettings)
+            dashboard = try await database.loadDashboard(match: match, surface: selectedSurface)
+            isLoadingDashboard = false
+        } catch {
+            dashboard = nil
+            isLoadingDashboard = false
+        }
+    }
+
+    private func sortMatches(_ lhs: TennisMatch, _ rhs: TennisMatch) -> Bool {
+        lhs.date > rhs.date
+    }
+
+    private func loadDatabaseSnapshot() async -> Result<(matches: [TennisMatch], rankings: [RankedPlayer]), Error> {
+        do {
+            let database = ATPDatabase(settings: databaseSettings)
+            return .success(try await database.loadSnapshot())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func loadOddsetMatches() async -> Result<[OddsetMatch], Error> {
+        do {
+            let matches = try await OddsetClient().loadMatches()
+            let database = ATPDatabase(settings: databaseSettings)
+            return .success((try? await database.enrichMatches(matches)) ?? matches)
+        } catch {
+            return .failure(error)
+        }
     }
 }

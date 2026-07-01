@@ -1,5 +1,17 @@
 import Foundation
 
+struct DatabaseSettings: Equatable {
+    var host: String
+    var port: Int
+    var database: String
+    var user: String
+    var password: String
+
+    var displayName: String {
+        "\(user)@\(host):\(port)/\(database)"
+    }
+}
+
 enum TennisSurface: String, CaseIterable, Identifiable {
     case grass
     case clay
@@ -19,37 +31,38 @@ enum TennisSurface: String, CaseIterable, Identifiable {
     }
 }
 
-struct ServicePing: Decodable {
-    let message: String
-    let version: String
-}
-
-struct MatchPlayer: Decodable, Equatable {
+struct MatchPlayer: Equatable {
     let id: String?
     let name: String
+    let country: String?
+    let rank: Int?
     let odds: Double?
 }
 
-struct TennisMatch: Decodable, Identifiable, Equatable {
-    let id: Int
-    let start: Date
+struct TennisMatch: Identifiable, Equatable {
+    let id: String
+    let date: String
     let tournament: String
-    let state: String
+    let eventType: String?
+    let surface: String?
+    let round: String?
     let score: String?
-    let serve: String?
+    let status: String?
     let playerA: MatchPlayer
     let playerB: MatchPlayer
 
-    var isLive: Bool {
-        state == "live"
-    }
+    var isLive: Bool { false }
 
     var stateTitle: String {
-        isLive ? "Live" : "Upcoming"
+        status ?? "Match"
+    }
+
+    var dateTitle: String {
+        date
     }
 
     var displayScore: String {
-        score?.isEmpty == false ? score! : start.formatted(date: .omitted, time: .shortened)
+        score?.isEmpty == false ? score! : "-"
     }
 
     var matchupTitle: String {
@@ -58,6 +71,190 @@ struct TennisMatch: Decodable, Identifiable, Equatable {
 
     var shortTitle: String {
         "\(playerA.lastName) - \(playerB.lastName)"
+    }
+}
+
+enum OddsetMatchState: String, Equatable {
+    case live
+    case upcoming
+
+    var title: String {
+        switch self {
+        case .live:
+            return "Live"
+        case .upcoming:
+            return "Upcoming"
+        }
+    }
+}
+
+enum MatchListFilter: String, CaseIterable, Identifiable {
+    case all
+    case live
+    case upcoming
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .live:
+            return "Live"
+        case .upcoming:
+            return "Upcoming"
+        }
+    }
+}
+
+struct OddsetMatch: Identifiable, Equatable {
+    let id: String
+    let start: Date?
+    let tournament: String?
+    let state: OddsetMatchState
+    let score: String?
+    let serve: String?
+    let playerA: MatchPlayer
+    let playerB: MatchPlayer
+    let source: String
+
+    var matchupTitle: String {
+        "\(playerA.name) vs \(playerB.name)"
+    }
+
+    var startTitle: String {
+        guard let start else {
+            return "--:--"
+        }
+
+        let calendar = Calendar.current
+        let day: String
+
+        if calendar.isDateInToday(start) {
+            day = "Idag"
+        } else if calendar.isDateInTomorrow(start) {
+            day = "I morgon"
+        } else if calendar.isDateInYesterday(start) {
+            day = "I går"
+        } else {
+            day = Self.dayFormatter.string(from: start)
+        }
+
+        return "\(day) \(Self.timeFormatter.string(from: start))"
+    }
+
+    var displayScore: String {
+        score?.isEmpty == false ? score! : (state == .live ? "Live" : "Not started")
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "sv_SE")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "sv_SE")
+        formatter.setLocalizedDateFormatFromTemplate("EEE d MMM")
+        return formatter
+    }()
+}
+
+struct PlayerDashboardStats: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let country: String?
+    let age: Int?
+    let pro: Int?
+    let height: Int?
+    let weight: Int?
+    let rank: Int?
+    let points: Int?
+    let highestRank: Int?
+    let highestRankDate: String?
+    let careerTitles: Int?
+    let careerPrize: Int?
+    let ytdWins: Int?
+    let ytdLosses: Int?
+    let ytdTitles: Int?
+    let ytdPrize: Int?
+    let serveRating: Double?
+    let returnRating: Double?
+    let pressureRating: Double?
+    let eloRank: Int?
+    let hardElo: Int?
+    let clayElo: Int?
+    let grassElo: Int?
+    let totalMatches: Int
+    let totalWins: Int
+    let recentMatches: Int
+    let recentWins: Int
+    let surfaceMatches: Int
+    let surfaceWins: Int
+    let hardMatches: Int
+    let hardWins: Int
+    let clayMatches: Int
+    let clayWins: Int
+    let grassMatches: Int
+    let grassWins: Int
+
+    var imageURL: URL? {
+        URL(string: "https://www.atptour.com/-/media/alias/player-headshot/\(id.lowercased())")
+    }
+
+    var totalLosses: Int { max(0, totalMatches - totalWins) }
+    var recentLosses: Int { max(0, recentMatches - recentWins) }
+    var surfaceLosses: Int { max(0, surfaceMatches - surfaceWins) }
+    var hardLosses: Int { max(0, hardMatches - hardWins) }
+    var clayLosses: Int { max(0, clayMatches - clayWins) }
+    var grassLosses: Int { max(0, grassMatches - grassWins) }
+    var careerWinsForDisplay: Int { totalWins }
+    var careerLossesForDisplay: Int { totalLosses }
+
+    var winPercentage: Double? {
+        percentage(wins: totalWins, matches: totalMatches)
+    }
+
+    var recentWinPercentage: Double? {
+        percentage(wins: recentWins, matches: recentMatches)
+    }
+
+    var surfaceWinPercentage: Double? {
+        percentage(wins: surfaceWins, matches: surfaceMatches)
+    }
+
+    private func percentage(wins: Int, matches: Int) -> Double? {
+        guard matches > 0 else {
+            return nil
+        }
+
+        return Double(wins) / Double(matches) * 100
+    }
+}
+
+struct RankingHistoryPoint: Identifiable, Equatable {
+    let id: String
+    let month: String
+    let rank: Int
+}
+
+struct MatchDashboard: Equatable {
+    let matchID: String
+    let surface: TennisSurface
+    let playerA: PlayerDashboardStats?
+    let playerB: PlayerDashboardStats?
+    let rankingHistoryA: [RankingHistoryPoint]
+    let rankingHistoryB: [RankingHistoryPoint]
+    let headToHeadWinsA: Int
+    let headToHeadWinsB: Int
+    let modelA: Double?
+    let modelB: Double?
+    let winFactorA: Double?
+
+    var winFactorB: Double? {
+        winFactorA.map { 1 - $0 }
     }
 }
 
@@ -75,39 +272,32 @@ extension MatchPlayer {
     }
 }
 
-struct RankingsResponse: Decodable {
-    let players: [RankedPlayer]
-}
-
-struct RankedPlayer: Decodable, Identifiable, Equatable {
-    let date: Date
+struct RankedPlayer: Identifiable, Equatable {
     let player: String
     let name: String
     let country: String?
     let rank: Int
     let points: Int?
+    let eloRank: Int?
+    let hardElo: Int?
+    let clayElo: Int?
+    let grassElo: Int?
 
     var id: String { player }
 }
 
-struct OddsResponse: Decodable, Equatable {
-    let computedOdds: [Double]?
-    let tennisAbstractOdds: [Double]?
-
-    var hasModel: Bool {
-        computedOdds?.count == 2
-    }
-}
-
 struct MatchIntelligence: Equatable {
-    let matchID: Int
+    let matchID: String
     let surface: TennisSurface
-    let odds: OddsResponse
+    let playerA: String
+    let playerB: String
+    let modelA: Double?
+    let modelB: Double?
+    let winFactorA: Double?
 
-    var modelA: Double? { odds.computedOdds?.first }
-    var modelB: Double? { odds.computedOdds?.dropFirst().first }
-    var abstractA: Double? { odds.tennisAbstractOdds?.first }
-    var abstractB: Double? { odds.tennisAbstractOdds?.dropFirst().first }
+    var winFactorB: Double? {
+        winFactorA.map { 1 - $0 }
+    }
 }
 
 enum MatchRoomStatus: Equatable {

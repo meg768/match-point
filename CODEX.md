@@ -2,12 +2,13 @@
 
 ## Project
 
-`Match Room` is a native macOS SwiftUI app for ATP tennis data from
-`https://tennis.egelberg.se`.
+`Match Room` is a native macOS SwiftUI app for ATP tennis data from Magnus'
+MariaDB database.
 
-It is meant to be a local instrument, not a web product: open the app, see live
-and upcoming matches, compare bookmaker odds to Magnus' model odds, and keep
-ranking context close at hand.
+It is a separate project from `tennis.egelberg.se` and must not rely on
+`tennis.egelberg.se` at runtime. The app is meant to be a local instrument, not
+a web product: open the app, read the ATP database directly, inspect recent
+matches, compare SQL model odds, and keep ranking context close at hand.
 
 ## Repository
 
@@ -17,22 +18,51 @@ ranking context close at hand.
 - Minimum platform: macOS 14
 - App bundle output: `dist/Match Room.app`
 
-## Data Sources
+## Data Source
 
-Default API base URL:
+Default database settings:
 
 ```text
-https://tennis.egelberg.se
+host: pi-sql
+port: 3306
+database: atp
 ```
 
-Current first-cut endpoints:
+Current first-cut database reads:
 
-- `GET /api/ping`
-- `GET /api/oddset?states=STARTED,NOT_STARTED`
-- `GET /api/player/rankings?top=30`
-- `GET /api/odds?playerA=...&playerB=...&surface=...`
+- recent rows from `matches` joined to `events` and `players`
+- top rankings from `players`
+- model odds through `PLAYER_WIN_FACTOR(...)`
 
-The service endpoint catalog is available at `GET /api/meta/endpoints`.
+Oddset/Kambi is allowed as a separate runtime source for live and upcoming
+tennis matches. Keep that client implemented locally inside Match Room; do not
+add runtime dependencies on `atp-tennis`, `oddset-mqtt`, or `tennis.egelberg.se`
+for this pilot.
+
+Do not make the app depend on `tennis.egelberg.se` for core data access. That
+site/API can remain useful elsewhere, but Match Room's primary path is direct
+database access.
+
+The ATP database is intentionally open to Match Room for all kinds of read
+questions. Prefer adding direct SQL-backed app features over routing through the
+web/API service.
+
+## Product Direction
+
+Match Room should feel like a native Mac instrument for ATP tennis: Codex, the
+database, and a Mac window. It is not a frontend for `tennis.egelberg.se`, not a
+wrapper around the public site, and not dependent on the web API for runtime
+data.
+
+The current first cut is deliberately exploratory and may show too much at once.
+When continuing, prefer shaping the first screen around the smallest useful
+daily tennis workflow instead of adding more panels by default. Good next steps
+are likely about deciding what Magnus wants to inspect first, then simplifying
+the visible surface around that.
+
+Keep database credentials out of the repository. Local development may read
+defaults from a private `.env` in the ATP project, but committed code and docs
+must not contain secrets.
 
 ## Visual Design
 
