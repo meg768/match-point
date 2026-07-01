@@ -1,10 +1,25 @@
 import AppKit
 import SwiftUI
 
-enum AppAppearanceMode: String {
+enum AppAppearanceMode: String, CaseIterable, Identifiable {
     case system
     case light
     case dark
+
+    static let pickerOrder: [AppAppearanceMode] = [.light, .dark, .system]
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system:
+            return "Automatiskt"
+        case .light:
+            return "Ljust"
+        case .dark:
+            return "Mörkt"
+        }
+    }
 
     var preferredColorScheme: ColorScheme? {
         switch self {
@@ -38,10 +53,25 @@ enum AppSurfaceTheme: String, Identifiable {
             return "US Open"
         }
     }
+
+    init(surface: TennisSurface) {
+        switch surface {
+        case .hard:
+            self = .hard
+        case .grass:
+            self = .grass
+        case .clay:
+            self = .clay
+        }
+    }
 }
 
 final class AppearanceSettings: ObservableObject {
-    @Published var mode: AppAppearanceMode = .system
+    @Published var mode: AppAppearanceMode {
+        didSet {
+            SettingsStore.save(appearanceMode: mode)
+        }
+    }
 
     @Published var surface: AppSurfaceTheme {
         didSet {
@@ -49,7 +79,8 @@ final class AppearanceSettings: ObservableObject {
         }
     }
 
-    init(surface: AppSurfaceTheme = SettingsStore.loadSurfaceTheme()) {
+    init(mode: AppAppearanceMode = SettingsStore.loadAppearanceMode(), surface: AppSurfaceTheme = SettingsStore.loadSurfaceTheme()) {
+        self.mode = mode
         self.surface = surface
     }
 

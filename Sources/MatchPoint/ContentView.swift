@@ -4,15 +4,16 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appearance: AppearanceSettings
-    @StateObject private var store = MatchRoomStore()
+    @StateObject private var store = MatchPointStore()
     @State private var searchText = ""
     @State private var matchPanelWidth: CGFloat? = SettingsStore.loadMatchPanelWidth()
     @State private var matchFilter: MatchListFilter = .all
+    @State private var isShowingSettings = false
     private let liveRefreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 8) {
-            MatchRoomSplitView(
+            MatchPointSplitView(
                 matches: filteredOddsetMatches,
                 selectedFilter: matchFilter,
                 selectedMatchID: store.selectedOddsetMatchID,
@@ -34,6 +35,12 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button {
+                    isShowingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+
+                Button {
                     store.refresh()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
@@ -42,8 +49,21 @@ struct ContentView: View {
 
             }
         }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsDialog(
+                appearance: appearance,
+                surfaceMode: store.surfaceMode,
+                onSurfaceModeChange: { mode in
+                    store.changeSurfaceMode(mode)
+                    appearance.surface = AppSurfaceTheme(surface: store.selectedSurface)
+                }
+            )
+        }
         .onAppear {
             store.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openMatchPointSettings)) { _ in
+            isShowingSettings = true
         }
         .onReceive(liveRefreshTimer) { _ in
             store.refresh()
@@ -59,6 +79,9 @@ struct ContentView: View {
         .modifier(FunctionKeyShortcut(keyCode: 99, functionKey: NSF3FunctionKey) {
             appearance.cycleSurface()
         })
+        .onChange(of: store.selectedSurface) { _, surface in
+            appearance.surface = AppSurfaceTheme(surface: surface)
+        }
     }
 
     private var filteredMatches: [TennisMatch] {
@@ -113,7 +136,7 @@ struct ContentView: View {
     }
 }
 
-struct MatchRoomSplitView: View {
+struct MatchPointSplitView: View {
     let matches: [OddsetMatch]
     let selectedFilter: MatchListFilter
     let selectedMatchID: String?
@@ -149,7 +172,7 @@ struct MatchRoomSplitView: View {
                 SplitDivider()
                     .frame(width: dividerWidth, height: availableHeight)
                     .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named("MatchRoomSplitView"))
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named("MatchPointSplitView"))
                             .onChanged { value in
                                 matchPanelWidth = clampedMatchWidth(
                                     value.location.x - (dividerWidth / 2),
@@ -167,7 +190,7 @@ struct MatchRoomSplitView: View {
                 .frame(height: availableHeight, alignment: .top)
             }
             .frame(width: availableWidth, height: availableHeight, alignment: .top)
-            .coordinateSpace(name: "MatchRoomSplitView")
+            .coordinateSpace(name: "MatchPointSplitView")
         }
     }
 
@@ -203,6 +226,115 @@ struct SplitDivider: View {
             } else {
                 NSCursor.arrow.set()
             }
+        }
+    }
+}
+
+struct SettingsDialog: View {
+    @ObservedObject var appearance: AppearanceSettings
+    let surfaceMode: TennisSurfaceMode
+    let onSurfaceModeChange: (TennisSurfaceMode) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Text("Inställningar")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundStyle(AppColors.heading)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppColors.badgeText)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppColors.softSettingsHeader)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppColors.fieldBorder, lineWidth: 1)
+            }
+
+            SettingsSection(title: "Färgläge") {
+                SettingsSegmentedControl(
+                    items: AppAppearanceMode.pickerOrder,
+                    selected: appearance.mode,
+                    title: \.title,
+                    onSelect: { appearance.mode = $0 }
+                )
+            }
+
+            SettingsSection(title: "Underlag") {
+                SettingsSegmentedControl(
+                    items: TennisSurfaceMode.allCases,
+                    selected: surfaceMode,
+                    title: \.title,
+                    onSelect: onSurfaceModeChange
+                )
+            }
+        }
+        .padding(18)
+        .frame(width: 520)
+        .background(AppColors.settingsDialogBackground)
+    }
+}
+
+struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(AppColors.heading)
+
+            content
+        }
+    }
+}
+
+struct SettingsSegmentedControl<Item: Hashable>: View {
+    let items: [Item]
+    let selected: Item
+    let title: (Item) -> String
+    let onSelect: (Item) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(items, id: \.self) { item in
+                Button {
+                    onSelect(item)
+                } label: {
+                    Text(title(item))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(selected == item ? AppColors.settingsSelectedText : AppColors.heading)
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(selected == item ? AppColors.settingsSelectedBackground : AppColors.settingsSegmentBackground)
+                        .overlay(alignment: .trailing) {
+                            if item != items.last {
+                                Rectangle()
+                                    .fill(AppColors.fieldBorder)
+                                    .frame(width: 1)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(AppColors.fieldBorder, lineWidth: 1)
         }
     }
 }
@@ -1182,9 +1314,9 @@ struct PlayerHeadshot: View {
                             .resizable()
                             .scaledToFit()
                     default:
-                        ProgressView()
-                            .controlSize(.small)
-                            .scaleEffect(0.8)
+                        Text(initials)
+                            .font(.system(size: max(18, imageSize * 0.2), weight: .black, design: .rounded))
+                            .foregroundStyle(AppColors.heading.opacity(0.32))
                     }
                 }
                 .frame(width: imageSize, height: imageSize)
@@ -1662,7 +1794,7 @@ struct EmptyState: View {
 }
 
 struct StatusBar: View {
-    let status: MatchRoomStatus
+    let status: MatchPointStatus
     let matchCount: Int
 
     var body: some View {
@@ -1820,6 +1952,11 @@ enum AppColors {
     static var tableAlternateRowBackground: Color { theme.tableAlternateRowBackground }
     static var previewBackground: Color { theme.previewBackground }
     static var previewText: Color { theme.previewText }
+    static var settingsDialogBackground: Color { theme.panelBackground }
+    static var softSettingsHeader: Color { theme.tableAlternateRowBackground }
+    static var settingsSegmentBackground: Color { theme.tableRowBackground.opacity(0.92) }
+    static var settingsSelectedBackground: Color { theme.previewBackground.opacity(0.82) }
+    static var settingsSelectedText: Color { theme.primaryStrong }
     static let accentGold = adaptive(light: nsColor(0.94, 0.70, 0.02), dark: nsColor(1.00, 0.82, 0.22))
     static let danger = adaptive(light: nsColor(0.86, 0.20, 0.18), dark: nsColor(1.00, 0.38, 0.34))
     static var selectionBackground: Color { theme.softBackground }

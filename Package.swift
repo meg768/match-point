@@ -3,19 +3,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "MatchRoom",
+    name: "MatchPoint",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "MatchRoom", targets: ["MatchRoom"])
+        .executable(name: "MatchPoint", targets: ["MatchPoint"])
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.9.1")
     ],
     targets: [
         .executableTarget(
-            name: "MatchRoom",
+            name: "MatchPoint",
             dependencies: [
                 .product(name: "MySQLNIO", package: "mysql-nio")
             ],

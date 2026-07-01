@@ -1,20 +1,21 @@
 import Foundation
 
 @MainActor
-final class MatchRoomStore: ObservableObject {
+final class MatchPointStore: ObservableObject {
     @Published var databaseSettings = SettingsStore.loadDatabaseSettings()
     @Published var matches: [TennisMatch] = []
     @Published var oddsetMatches: [OddsetMatch] = []
     @Published var rankings: [RankedPlayer] = []
     @Published var selectedMatchID: String?
     @Published var selectedOddsetMatchID: String?
-    @Published var selectedSurface = SettingsStore.loadModelSurface()
+    @Published var surfaceMode = SettingsStore.loadSurfaceMode()
+    @Published var selectedSurface = SettingsStore.loadSurfaceMode().surface ?? .grass
     @Published var intelligence: MatchIntelligence?
     @Published var dashboard: MatchDashboard?
     @Published var isLoading = false
     @Published var isLoadingIntelligence = false
     @Published var isLoadingDashboard = false
-    @Published var status: MatchRoomStatus = .idle
+    @Published var status: MatchPointStatus = .idle
 
     var selectedMatch: TennisMatch? {
         matches.first { $0.id == selectedMatchID } ?? matches.first
@@ -46,6 +47,7 @@ final class MatchRoomStore: ObservableObject {
             if selectedOddsetMatchID == nil || !matches.contains(where: { $0.id == selectedOddsetMatchID }) {
                 selectedOddsetMatchID = matches.first?.id
             }
+            resolveAutomaticSurface()
             status = .ready("Loaded \(matches.filter { $0.state == .live }.count) live and \(matches.filter { $0.state == .upcoming }.count) upcoming matches.")
             await loadDashboardForSelectedOddsetMatch()
         case .failure:
@@ -69,14 +71,17 @@ final class MatchRoomStore: ObservableObject {
     func select(oddsetMatch: OddsetMatch) {
         selectedOddsetMatchID = oddsetMatch.id
         dashboard = nil
+        resolveAutomaticSurface()
         Task {
             await loadDashboardForSelectedOddsetMatch()
         }
     }
 
-    func changeSurface(_ surface: TennisSurface) {
-        selectedSurface = surface
-        SettingsStore.save(modelSurface: surface)
+    func changeSurfaceMode(_ mode: TennisSurfaceMode) {
+        surfaceMode = mode
+        SettingsStore.save(surfaceMode: mode)
+        selectedSurface = resolvedSurface(for: selectedOddsetMatch)
+        SettingsStore.save(surfaceTheme: AppSurfaceTheme(surface: selectedSurface))
         intelligence = nil
         dashboard = nil
         Task {
@@ -87,6 +92,20 @@ final class MatchRoomStore: ObservableObject {
 
     func saveDatabaseSettings() {
         SettingsStore.save(databaseSettings: databaseSettings)
+    }
+
+    private func resolveAutomaticSurface() {
+        let resolved = resolvedSurface(for: selectedOddsetMatch)
+        guard selectedSurface != resolved else {
+            return
+        }
+
+        selectedSurface = resolved
+        SettingsStore.save(surfaceTheme: AppSurfaceTheme(surface: resolved))
+    }
+
+    private func resolvedSurface(for match: OddsetMatch?) -> TennisSurface {
+        surfaceMode.surface ?? match?.inferredSurface ?? .grass
     }
 
     func loadIntelligenceForSelectedMatch() async {

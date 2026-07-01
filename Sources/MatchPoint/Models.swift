@@ -31,6 +31,41 @@ enum TennisSurface: String, CaseIterable, Identifiable {
     }
 }
 
+enum TennisSurfaceMode: String, CaseIterable, Identifiable {
+    case hard
+    case clay
+    case grass
+    case automatic
+
+    var id: String { rawValue }
+
+    var surface: TennisSurface? {
+        switch self {
+        case .hard:
+            return .hard
+        case .clay:
+            return .clay
+        case .grass:
+            return .grass
+        case .automatic:
+            return nil
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .hard:
+            return "Hardcourt"
+        case .clay:
+            return "Grus"
+        case .grass:
+            return "Gräs"
+        case .automatic:
+            return "Automatiskt"
+        }
+    }
+}
+
 struct MatchPlayer: Equatable {
     let id: String?
     let name: String
@@ -145,6 +180,20 @@ struct OddsetMatch: Identifiable, Equatable {
 
     var displayScore: String {
         score?.isEmpty == false ? score! : (state == .live ? "Live" : "Not started")
+    }
+
+    var inferredSurface: TennisSurface {
+        let text = [tournament, source].compactMap { $0 }.joined(separator: " ").lowercased()
+
+        if text.contains("wimbledon") || text.contains("grass") || text.contains("halle") || text.contains("queen") || text.contains("stuttgart") {
+            return .grass
+        }
+
+        if text.contains("roland") || text.contains("garros") || text.contains("clay") || text.contains("monte carlo") || text.contains("madrid") || text.contains("rome") {
+            return .clay
+        }
+
+        return .hard
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -300,7 +349,7 @@ struct MatchIntelligence: Equatable {
     }
 }
 
-enum MatchRoomStatus: Equatable {
+enum MatchPointStatus: Equatable {
     case idle
     case loading(String)
     case ready(String)

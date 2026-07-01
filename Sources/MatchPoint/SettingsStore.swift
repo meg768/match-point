@@ -2,25 +2,25 @@ import Foundation
 import CoreGraphics
 
 enum SettingsStore {
-    private static let atpEnvPath = "/Users/magnus/Documents/GitHub/atp-tennis/.env"
     private static let databaseHostKey = "database.host"
     private static let databasePortKey = "database.port"
     private static let databaseNameKey = "database.name"
     private static let databaseUserKey = "database.user"
     private static let databasePasswordKey = "database.password"
+    private static let appearanceModeKey = "ui.appearanceMode"
     private static let surfaceThemeKey = "ui.surfaceTheme"
-    private static let selectedSurfaceKey = "model.surface"
+    private static let surfaceModeKey = "model.surfaceMode"
     private static let matchPanelWidthKey = "ui.matchPanelWidth"
 
     static func loadDatabaseSettings() -> DatabaseSettings {
-        let localEnv = loadATPEnv()
+        let env = loadEnvironment()
 
         return DatabaseSettings(
-            host: UserDefaults.standard.string(forKey: databaseHostKey) ?? localEnv["MYSQL_HOST"] ?? "pi-sql",
-            port: UserDefaults.standard.integer(forKey: databasePortKey).nonZero ?? Int(localEnv["MYSQL_PORT"] ?? "") ?? 3306,
-            database: UserDefaults.standard.string(forKey: databaseNameKey) ?? localEnv["MYSQL_DATABASE"] ?? "atp",
-            user: UserDefaults.standard.string(forKey: databaseUserKey) ?? localEnv["MYSQL_USER"] ?? "root",
-            password: nonEmpty(UserDefaults.standard.string(forKey: databasePasswordKey)) ?? localEnv["MYSQL_PASSWORD"] ?? ""
+            host: UserDefaults.standard.string(forKey: databaseHostKey) ?? env["MYSQL_HOST"] ?? "pi-sql",
+            port: UserDefaults.standard.integer(forKey: databasePortKey).nonZero ?? Int(env["MYSQL_PORT"] ?? "") ?? 3306,
+            database: UserDefaults.standard.string(forKey: databaseNameKey) ?? env["MYSQL_DATABASE"] ?? "atp",
+            user: UserDefaults.standard.string(forKey: databaseUserKey) ?? env["MYSQL_USER"] ?? "root",
+            password: nonEmpty(UserDefaults.standard.string(forKey: databasePasswordKey)) ?? env["MYSQL_PASSWORD"] ?? ""
         )
     }
 
@@ -30,6 +30,21 @@ enum SettingsStore {
         UserDefaults.standard.set(databaseSettings.database, forKey: databaseNameKey)
         UserDefaults.standard.set(databaseSettings.user, forKey: databaseUserKey)
         UserDefaults.standard.set(databaseSettings.password, forKey: databasePasswordKey)
+    }
+
+    static func loadAppearanceMode() -> AppAppearanceMode {
+        guard
+            let rawValue = UserDefaults.standard.string(forKey: appearanceModeKey),
+            let mode = AppAppearanceMode(rawValue: rawValue)
+        else {
+            return .system
+        }
+
+        return mode
+    }
+
+    static func save(appearanceMode: AppAppearanceMode) {
+        UserDefaults.standard.set(appearanceMode.rawValue, forKey: appearanceModeKey)
     }
 
     static func loadSurfaceTheme() -> AppSurfaceTheme {
@@ -47,19 +62,19 @@ enum SettingsStore {
         UserDefaults.standard.set(surfaceTheme.rawValue, forKey: surfaceThemeKey)
     }
 
-    static func loadModelSurface() -> TennisSurface {
+    static func loadSurfaceMode() -> TennisSurfaceMode {
         guard
-            let rawValue = UserDefaults.standard.string(forKey: selectedSurfaceKey),
-            let surface = TennisSurface(rawValue: rawValue)
+            let rawValue = UserDefaults.standard.string(forKey: surfaceModeKey),
+            let surfaceMode = TennisSurfaceMode(rawValue: rawValue)
         else {
-            return .grass
+            return .automatic
         }
 
-        return surface
+        return surfaceMode
     }
 
-    static func save(modelSurface: TennisSurface) {
-        UserDefaults.standard.set(modelSurface.rawValue, forKey: selectedSurfaceKey)
+    static func save(surfaceMode: TennisSurfaceMode) {
+        UserDefaults.standard.set(surfaceMode.rawValue, forKey: surfaceModeKey)
     }
 
     static func loadMatchPanelWidth() -> CGFloat? {
@@ -71,12 +86,27 @@ enum SettingsStore {
         UserDefaults.standard.set(Double(matchPanelWidth), forKey: matchPanelWidthKey)
     }
 
-    private static func loadATPEnv() -> [String: String] {
-        guard let contents = try? String(contentsOfFile: atpEnvPath, encoding: .utf8) else {
-            return ProcessInfo.processInfo.environment
+    private static func loadEnvironment() -> [String: String] {
+        ProcessInfo.processInfo.environment.merging(loadAppSupportEnv()) { _, fileValue in fileValue }
+    }
+
+    private static func loadAppSupportEnv() -> [String: String] {
+        guard
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else {
+            return [:]
         }
 
-        let fileValues = contents
+        let envURL = appSupport.appendingPathComponent("Match Point", isDirectory: true).appendingPathComponent(".env")
+        guard let contents = try? String(contentsOf: envURL, encoding: .utf8) else {
+            return [:]
+        }
+
+        return parseEnv(contents)
+    }
+
+    private static func parseEnv(_ contents: String) -> [String: String] {
+        contents
             .split(whereSeparator: \.isNewline)
             .reduce(into: [String: String]()) { result, line in
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,8 +118,6 @@ enum SettingsStore {
                 let rawValue = String(trimmed[trimmed.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
                 result[key] = rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             }
-
-        return ProcessInfo.processInfo.environment.merging(fileValues) { _, fileValue in fileValue }
     }
 
     private static func nonEmpty(_ value: String?) -> String? {
