@@ -401,7 +401,7 @@ struct OddsetRow: View {
                         .foregroundStyle(AppColors.caption)
                         .lineLimit(1)
                     Spacer()
-                    Text(match.startTitle)
+                    Text(match.startTitleWithOdds)
                         .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundStyle(AppColors.badgeText)
                 }
@@ -428,54 +428,72 @@ struct CompactMatchLine: View {
     let match: OddsetMatch
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            playerLabel(match.playerA, isServing: match.serve == "playerA")
-            playerLabel(match.playerB, isServing: match.serve == "playerB")
-
-            if let trailingText {
-                HStack(spacing: 8) {
-                    Text(trailingText)
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(AppColors.primaryStrong)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            matchupLine
         }
-        .font(.system(size: 15, weight: .regular))
+        .font(.system(size: 14, weight: .regular))
         .foregroundStyle(AppColors.heading)
     }
 
-    private func playerLabel(_ player: MatchPlayer, isServing: Bool) -> some View {
+    private var matchupLine: some View {
+        HStack(spacing: 6) {
+            playerToken(match.playerA, isServing: match.serve == "playerA")
+
+            Text("vs")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AppColors.badgeText)
+                .fixedSize()
+
+            playerToken(match.playerB, isServing: match.serve == "playerB")
+        }
+        .lineLimit(1)
+    }
+
+    private func playerToken(_ player: MatchPlayer, isServing: Bool) -> some View {
         HStack(spacing: 5) {
             CountryBadge(country: player.country)
-                .frame(width: 20, height: 20)
+                .frame(width: 18, height: 18)
             Text(playerTitle(player))
                 .lineLimit(1)
-            if let odds = player.odds {
-                Text("(\(odds.formatted(.number.precision(.fractionLength(2)))))")
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(AppColors.badgeText)
-            }
+                .truncationMode(.tail)
             if isServing {
                 Text("🎾")
+                    .fixedSize()
             }
-            Spacer(minLength: 0)
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(isServing ? 2 : 1)
     }
 
     private func playerTitle(_ player: MatchPlayer) -> String {
-        player.name
+        let country = player.country.map { " (\($0))" } ?? ""
+        let rank = player.rank.map { " #\($0)" } ?? ""
+        return "\(player.name)\(country)\(rank)"
     }
 
-    private var trailingText: String? {
-        match.score?.isEmpty == false ? match.score : nil
-    }
 }
 
 private extension String {
     var nonEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+private extension OddsetMatch {
+    var startTitleWithOdds: String {
+        guard let oddsPairText else {
+            return startTitle
+        }
+
+        return "\(startTitle) \(oddsPairText)"
+    }
+
+    var oddsPairText: String? {
+        guard let oddsA = playerA.odds, let oddsB = playerB.odds else {
+            return nil
+        }
+
+        return "(\(formatOdds(oddsA))-\(formatOdds(oddsB)))"
     }
 }
 
