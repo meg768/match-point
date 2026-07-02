@@ -585,7 +585,23 @@ struct MatchOverviewPanel: View {
                     .foregroundStyle(AppColors.badgeText)
             }
 
-            HStack(alignment: .top, spacing: 18) {
+            EqualPlayerColumns(match: match, dashboard: dashboard)
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+struct EqualPlayerColumns: View {
+    let match: OddsetMatch
+    let dashboard: MatchDashboard?
+
+    private let spacing: CGFloat = 18
+
+    var body: some View {
+        GeometryReader { proxy in
+            let columnWidth = max(220, (proxy.size.width - spacing) / 2)
+
+            HStack(alignment: .top, spacing: spacing) {
                 PlayerInfoColumn(
                     name: match.playerA.name,
                     country: dashboard?.playerA?.country ?? match.playerA.country,
@@ -595,6 +611,7 @@ struct MatchOverviewPanel: View {
                     winFactor: dashboard?.winFactorA,
                     h2h: dashboard?.headToHeadWinsA ?? 0
                 )
+                .frame(width: columnWidth)
 
                 PlayerInfoColumn(
                     name: match.playerB.name,
@@ -605,9 +622,10 @@ struct MatchOverviewPanel: View {
                     winFactor: dashboard?.winFactorB,
                     h2h: dashboard?.headToHeadWinsB ?? 0
                 )
+                .frame(width: columnWidth)
             }
         }
-        .padding(.bottom, 2)
+        .frame(height: 530)
     }
 }
 
@@ -659,7 +677,7 @@ struct PlayerInfoColumn: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppColors.panelBorder, lineWidth: 1)
+                    .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
             }
         }
         .padding(.horizontal, 12)
@@ -685,21 +703,22 @@ struct PlayerInfoRow: View {
     var body: some View {
         HStack {
             Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AppColors.caption)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(AppColors.caption.opacity(0.64))
                 .textCase(.uppercase)
+                .tracking(0.8)
             Spacer(minLength: 10)
             Text(value)
-                .font(.system(size: 14, weight: .regular, design: .monospaced))
+                .font(.system(size: 15, weight: .regular, design: .monospaced))
                 .foregroundStyle(AppColors.heading)
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
-        .frame(height: 34)
-        .background(AppColors.panelBackground.opacity(0.35))
+        .frame(height: 33)
+        .background(AppColors.panelBackground.opacity(0.22))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(AppColors.panelBorder)
+                .fill(AppColors.panelBorder.opacity(0.72))
                 .frame(height: 1)
         }
     }
@@ -1070,6 +1089,9 @@ struct MatchComparisonPanel: View {
             FieldLabel("Comparison")
 
             VStack(spacing: 0) {
+                ComparisonRow(label: "Market", left: match.playerA.odds.map(formatOdds) ?? "-", right: match.playerB.odds.map(formatOdds) ?? "-")
+                ComparisonRow(label: "Model", left: dashboard?.modelA.map(formatOdds) ?? "-", right: dashboard?.modelB.map(formatOdds) ?? "-")
+                ComparisonRow(label: "Win", left: dashboard?.winFactorA.map { "\(formatPercent($0 * 100))%" } ?? "-", right: dashboard?.winFactorB.map { "\(formatPercent($0 * 100))%" } ?? "-")
                 ComparisonRow(label: "Rank", left: rank(dashboard?.playerA?.rank), right: rank(dashboard?.playerB?.rank))
                 ComparisonRow(label: "ELO", left: value(dashboard?.playerA?.eloRank), right: value(dashboard?.playerB?.eloRank))
                 ComparisonRow(label: "Hard ELO", left: value(dashboard?.playerA?.hardElo), right: value(dashboard?.playerB?.hardElo))
@@ -1133,7 +1155,7 @@ struct ComparisonRow: View {
             Text(left)
                 .font(.system(size: 16, weight: .regular, design: .monospaced))
                 .foregroundStyle(AppColors.heading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 .lineLimit(1)
             Text(label)
                 .font(.system(size: 12, weight: .semibold))
@@ -1144,7 +1166,7 @@ struct ComparisonRow: View {
             Text(right)
                 .font(.system(size: 16, weight: .regular, design: .monospaced))
                 .foregroundStyle(AppColors.heading)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
         }
         .padding(.horizontal, 14)
@@ -1307,27 +1329,33 @@ struct PlayerHeadshot: View {
                             .fill(AppColors.primaryStrong.opacity(0.12))
                     }
 
-                AsyncImage(url: url) { phase in
+                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
                     switch phase {
                     case .success(let image):
                         image
                             .resizable()
                             .scaledToFit()
+                            .frame(width: imageSize, height: imageSize)
                     default:
                         Text(initials)
                             .font(.system(size: max(18, imageSize * 0.2), weight: .black, design: .rounded))
                             .foregroundStyle(AppColors.heading.opacity(0.32))
+                            .frame(width: imageSize, height: imageSize)
                     }
                 }
                 .frame(width: imageSize, height: imageSize)
                 .clipShape(Circle())
             }
+            .frame(width: size, height: size)
         }
         .aspectRatio(1, contentMode: .fit)
         .clipShape(Circle())
         .overlay {
             Circle()
                 .stroke(AppColors.primaryStrong.opacity(0.7), lineWidth: 1)
+        }
+        .transaction { transaction in
+            transaction.animation = nil
         }
     }
 
