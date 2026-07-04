@@ -54,6 +54,14 @@ database, and a Mac window. It is not a frontend for `tennis.egelberg.se`, not a
 wrapper around the public site, and not dependent on the web API for runtime
 data.
 
+`Match Point` is Magnus' controlled main track. In parallel, Codex may explore
+ideas independently in the separate repository
+`/Users/magnus/Documents/GitHub/match-point-gpt`. Treat that as a friendly
+race: Magnus drives `match-point`, Codex drives `match-point-gpt`, and useful
+ideas can be discussed or borrowed intentionally. Do not couple the projects at
+runtime, do not read private files from the sibling project, and do not let GPT
+experiments automatically steer this app unless Magnus asks for that change.
+
 The current first cut is deliberately exploratory and may show too much at once.
 When continuing, prefer shaping the first screen around the smallest useful
 daily tennis workflow instead of adding more panels by default. Good next steps

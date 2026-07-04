@@ -10,9 +10,9 @@ enum ATPDatabaseError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidHost:
-            return "Invalid database host or port."
+            return "Ogiltig databashost eller port."
         case .missingWinFactor:
-            return "Model could not compute a win factor for this matchup."
+            return "Modellen kunde inte beräkna vinstfaktor för den här matchen."
         }
     }
 }
@@ -81,7 +81,14 @@ struct ATPDatabase {
             let rankingHistoryA = try await loadRankingHistory(name: match.playerA.name, on: connection)
             let rankingHistoryB = try await loadRankingHistory(name: match.playerB.name, on: connection)
             let headToHead = try await loadHeadToHead(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
+            let headToHeadMatches = try await loadHeadToHeadMatches(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
+            let emptySignals: (upsets: [MatchSignal], warnings: [MatchSignal]) = ([], [])
+            let signalsA = (try? await loadMatchSignals(playerName: match.playerA.name, on: connection)) ?? emptySignals
+            let signalsB = (try? await loadMatchSignals(playerName: match.playerB.name, on: connection)) ?? emptySignals
             let model = try? await loadModelOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, matchID: match.id, on: connection)
+            let signals = [signalsA, signalsB]
+            let upsetWins = Array(signals.flatMap(\.upsets).sorted(by: signalSort).prefix(4))
+            let warningLosses = Array(signals.flatMap(\.warnings).sorted(by: signalSort).prefix(4))
 
             return MatchDashboard(
                 matchID: match.id,
@@ -92,6 +99,9 @@ struct ATPDatabase {
                 rankingHistoryB: rankingHistoryB,
                 headToHeadWinsA: headToHead.playerAWins,
                 headToHeadWinsB: headToHead.playerBWins,
+                headToHeadMatches: headToHeadMatches,
+                upsetWins: upsetWins,
+                warningLosses: warningLosses,
                 modelA: model?.modelA,
                 modelB: model?.modelB,
                 winFactorA: model?.winFactorA
@@ -126,6 +136,49 @@ struct ATPDatabase {
                     source: match.source
                 )
             }
+        }
+    }
+
+    func loadPlayerMatches(name: String, limit: Int = 120) async throws -> [TennisMatch] {
+        try await withConnection { connection in
+            let rows = try await connection.query(
+                """
+                SELECT
+                    m.id,
+                    DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
+                    e.name AS event_name,
+                    e.type AS event_type,
+                    e.surface AS event_surface,
+                    m.round,
+                    m.score,
+                    m.status,
+                    winner.id AS winner_id,
+                    winner.name AS winner_name,
+                    winner.country AS winner_country,
+                    m.winner_rank,
+                    loser.id AS loser_id,
+                    loser.name AS loser_name,
+                    loser.country AS loser_country,
+                    m.loser_rank
+                FROM matches m
+                JOIN events e ON e.id = m.event
+                LEFT JOIN players winner ON winner.id = m.winner
+                LEFT JOIN players loser ON loser.id = m.loser
+                WHERE e.date IS NOT NULL
+                  AND m.winner IS NOT NULL
+                  AND m.loser IS NOT NULL
+                  AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
+                ORDER BY e.date DESC, e.id DESC, m.id DESC
+                LIMIT ?
+                """,
+                [
+                    MySQLData(string: name),
+                    MySQLData(string: name),
+                    MySQLData(int: limit)
+                ]
+            ).get()
+
+            return rows.compactMap(makeTennisMatch)
         }
     }
 
@@ -200,42 +253,44 @@ struct ATPDatabase {
             """
         ).get()
 
-        return rows.compactMap { row in
-            guard
-                let id = row.string("id"),
-                let eventDate = row.string("event_date"),
-                let eventName = row.string("event_name"),
-                let winnerName = row.string("winner_name"),
-                let loserName = row.string("loser_name")
-            else {
-                return nil
-            }
+        return rows.compactMap(makeTennisMatch)
+    }
 
-            return TennisMatch(
-                id: id,
-                date: eventDate,
-                tournament: eventName,
-                eventType: row.string("event_type"),
-                surface: row.string("event_surface"),
-                round: row.string("round"),
-                score: row.string("score"),
-                status: row.string("status"),
-                playerA: MatchPlayer(
-                    id: row.string("winner_id"),
-                    name: winnerName,
-                    country: row.string("winner_country"),
-                    rank: row.int("winner_rank"),
-                    odds: nil
-                ),
-                playerB: MatchPlayer(
-                    id: row.string("loser_id"),
-                    name: loserName,
-                    country: row.string("loser_country"),
-                    rank: row.int("loser_rank"),
-                    odds: nil
-                )
-            )
+    private func makeTennisMatch(row: MySQLRow) -> TennisMatch? {
+        guard
+            let id = row.string("id"),
+            let eventDate = row.string("event_date"),
+            let eventName = row.string("event_name"),
+            let winnerName = row.string("winner_name"),
+            let loserName = row.string("loser_name")
+        else {
+            return nil
         }
+
+        return TennisMatch(
+            id: id,
+            date: eventDate,
+            tournament: eventName,
+            eventType: row.string("event_type"),
+            surface: row.string("event_surface"),
+            round: row.string("round"),
+            score: row.string("score"),
+            status: row.string("status"),
+            playerA: MatchPlayer(
+                id: row.string("winner_id"),
+                name: winnerName,
+                country: row.string("winner_country"),
+                rank: row.int("winner_rank"),
+                odds: nil
+            ),
+            playerB: MatchPlayer(
+                id: row.string("loser_id"),
+                name: loserName,
+                country: row.string("loser_country"),
+                rank: row.int("loser_rank"),
+                odds: nil
+            )
+        )
     }
 
     private func loadPlayerStats(name: String, surface: TennisSurface, on connection: MySQLConnection) async throws -> PlayerDashboardStats? {
@@ -256,8 +311,8 @@ struct ATPDatabase {
                 DATE_FORMAT(p.highest_rank_date, '%Y-%m-%d') AS highest_rank_date,
                 p.career_titles,
                 p.career_prize,
-                p.ytd_wins,
-                p.ytd_losses,
+                p.ytd_wins AS player_ytd_wins,
+                p.ytd_losses AS player_ytd_losses,
                 p.ytd_titles,
                 p.ytd_prize,
                 p.serve_rating,
@@ -267,8 +322,14 @@ struct ATPDatabase {
                 p.elo_rank_hard,
                 p.elo_rank_clay,
                 p.elo_rank_grass,
-                CAST(COUNT(m.id) AS SIGNED) AS total_matches,
-                CAST(SUM(CASE WHEN m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS total_wins,
+                CAST(SUM(CASE WHEN e.type = 'Grand Slam' AND m.round = 'F' AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS grand_slam_titles,
+                CAST(SUM(CASE WHEN e.type = 'Masters' AND m.round = 'F' AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS masters_titles,
+                CAST(SUM(CASE WHEN e.type = 'ATP-500' AND m.round = 'F' AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS atp500_titles,
+                CAST(SUM(CASE WHEN e.type = 'ATP-250' AND m.round = 'F' AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS atp250_titles,
+                CAST(SUM(CASE WHEN e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250') THEN 1 ELSE 0 END) AS SIGNED) AS total_matches,
+                CAST(SUM(CASE WHEN e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250') AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS total_wins,
+                CAST(SUM(CASE WHEN e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250') AND YEAR(e.date) = YEAR(CURDATE()) THEN 1 ELSE 0 END) AS SIGNED) AS ytd_matches,
+                CAST(SUM(CASE WHEN e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250') AND YEAR(e.date) = YEAR(CURDATE()) AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS ytd_wins,
                 CAST(SUM(CASE WHEN e.date >= CURDATE() - INTERVAL 365 DAY THEN 1 ELSE 0 END) AS SIGNED) AS recent_matches,
                 CAST(SUM(CASE WHEN e.date >= CURDATE() - INTERVAL 365 DAY AND m.winner = p.id THEN 1 ELSE 0 END) AS SIGNED) AS recent_wins,
                 CAST(SUM(CASE WHEN e.surface = ? THEN 1 ELSE 0 END) AS SIGNED) AS surface_matches,
@@ -323,6 +384,8 @@ struct ATPDatabase {
             return nil
         }
 
+        let form = try await loadRecentForm(playerID: id, limit: 12, on: connection)
+
         return PlayerDashboardStats(
             id: id,
             name: playerName,
@@ -336,9 +399,13 @@ struct ATPDatabase {
             highestRank: row.int("highest_rank"),
             highestRankDate: row.string("highest_rank_date"),
             careerTitles: row.int("career_titles"),
+            grandSlamTitles: row.int("grand_slam_titles") ?? 0,
+            mastersTitles: row.int("masters_titles") ?? 0,
+            atp500Titles: row.int("atp500_titles") ?? 0,
+            atp250Titles: row.int("atp250_titles") ?? 0,
             careerPrize: row.int("career_prize"),
             ytdWins: row.int("ytd_wins"),
-            ytdLosses: row.int("ytd_losses"),
+            ytdLosses: (row.int("ytd_matches") ?? 0) - (row.int("ytd_wins") ?? 0),
             ytdTitles: row.int("ytd_titles"),
             ytdPrize: row.int("ytd_prize"),
             serveRating: row.double("serve_rating"),
@@ -350,6 +417,8 @@ struct ATPDatabase {
             grassElo: row.int("elo_rank_grass"),
             totalMatches: row.int("total_matches") ?? 0,
             totalWins: row.int("total_wins") ?? 0,
+            formMatches: form.matches,
+            formWins: form.wins,
             recentMatches: row.int("recent_matches") ?? 0,
             recentWins: row.int("recent_wins") ?? 0,
             surfaceMatches: row.int("surface_matches") ?? 0,
@@ -360,6 +429,145 @@ struct ATPDatabase {
             clayWins: row.int("clay_wins") ?? 0,
             grassMatches: row.int("grass_matches") ?? 0,
             grassWins: row.int("grass_wins") ?? 0
+        )
+    }
+
+    private func loadRecentForm(playerID: String, limit: Int, on connection: MySQLConnection) async throws -> (matches: Int, wins: Int) {
+        let rows = try await connection.query(
+            """
+            SELECT
+                CAST(COUNT(*) AS SIGNED) AS form_matches,
+                CAST(SUM(CASE WHEN recent.winner = ? THEN 1 ELSE 0 END) AS SIGNED) AS form_wins
+            FROM (
+                SELECT
+                    m.winner
+                FROM matches m
+                JOIN events e ON e.id = m.event
+                WHERE e.date IS NOT NULL
+                  AND e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250')
+                  AND m.winner IS NOT NULL
+                  AND m.loser IS NOT NULL
+                  AND (m.winner = ? OR m.loser = ?)
+                ORDER BY e.date DESC, e.id DESC, m.id DESC
+                LIMIT ?
+            ) recent
+            """,
+            [
+                MySQLData(string: playerID),
+                MySQLData(string: playerID),
+                MySQLData(string: playerID),
+                MySQLData(int: limit)
+            ]
+        ).get()
+
+        guard let row = rows.first else {
+            return (0, 0)
+        }
+
+        return (
+            matches: row.int("form_matches") ?? 0,
+            wins: row.int("form_wins") ?? 0
+        )
+    }
+
+    private func loadMatchSignals(playerName: String, on connection: MySQLConnection) async throws -> (upsets: [MatchSignal], warnings: [MatchSignal]) {
+        let rows = try await connection.query(
+            """
+            SELECT
+                recent.id,
+                recent.event_date,
+                recent.event_name,
+                recent.event_surface,
+                recent.winner_name,
+                recent.winner_rank,
+                recent.loser_name,
+                recent.loser_rank,
+                recent.score,
+                recent.player_won,
+                recent.own_rank,
+                recent.opponent_rank
+            FROM (
+                SELECT
+                    m.id,
+                    DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
+                    e.name AS event_name,
+                    e.surface AS event_surface,
+                    winner.name AS winner_name,
+                    m.winner_rank,
+                    loser.name AS loser_name,
+                    m.loser_rank,
+                    m.score,
+                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN 1 ELSE 0 END AS player_won,
+                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN m.winner_rank ELSE m.loser_rank END AS own_rank,
+                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN m.loser_rank ELSE m.winner_rank END AS opponent_rank,
+                    e.date,
+                    e.id AS event_id
+                FROM matches m
+                JOIN events e ON e.id = m.event
+                JOIN players winner ON winner.id = m.winner
+                JOIN players loser ON loser.id = m.loser
+                WHERE e.date IS NOT NULL
+                  AND e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250')
+                  AND m.winner IS NOT NULL
+                  AND m.loser IS NOT NULL
+                  AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
+                ORDER BY e.date DESC, e.id DESC, m.id DESC
+                LIMIT 12
+            ) recent
+            """,
+            [
+                MySQLData(string: playerName),
+                MySQLData(string: playerName),
+                MySQLData(string: playerName),
+                MySQLData(string: playerName),
+                MySQLData(string: playerName)
+            ]
+        ).get()
+
+        var upsets: [MatchSignal] = []
+        var warnings: [MatchSignal] = []
+
+        for row in rows {
+            guard let signal = makeMatchSignal(row) else {
+                continue
+            }
+
+            let playerWon = (row.int("player_won") ?? 0) == 1
+            guard let ownRank = row.int("own_rank"), let opponentRank = row.int("opponent_rank") else {
+                continue
+            }
+
+            if playerWon, opponentRank < ownRank, ownRank - opponentRank >= 15 {
+                upsets.append(signal)
+            } else if !playerWon, opponentRank > ownRank, opponentRank - ownRank >= 20 {
+                warnings.append(signal)
+            }
+        }
+
+        return (upsets, warnings)
+    }
+
+    private func makeMatchSignal(_ row: MySQLRow) -> MatchSignal? {
+        guard
+            let id = row.string("id"),
+            let date = row.string("event_date"),
+            let tournament = row.string("event_name"),
+            let winnerName = row.string("winner_name"),
+            let loserName = row.string("loser_name")
+        else {
+            return nil
+        }
+
+        return MatchSignal(
+            id: id,
+            date: date,
+            tournament: tournament,
+            surface: row.string("event_surface"),
+            winnerName: winnerName,
+            winnerRank: row.int("winner_rank"),
+            loserName: loserName,
+            loserRank: row.int("loser_rank"),
+            score: row.string("score")
         )
     }
 
@@ -442,6 +650,67 @@ struct ATPDatabase {
         )
     }
 
+    private func loadHeadToHeadMatches(playerA: String, playerB: String, on connection: MySQLConnection) async throws -> [HeadToHeadMatch] {
+        let rows = try await connection.query(
+            """
+            SELECT
+                m.id,
+                DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
+                e.name AS event_name,
+                e.surface AS event_surface,
+                winner.name AS winner_name,
+                m.winner_rank,
+                loser.name AS loser_name,
+                m.loser_rank,
+                m.score
+            FROM matches m
+            JOIN events e ON e.id = m.event
+            JOIN players winner ON winner.id = m.winner
+            JOIN players loser ON loser.id = m.loser
+            WHERE e.date IS NOT NULL
+              AND m.winner IS NOT NULL
+              AND m.loser IS NOT NULL
+              AND (
+                (m.winner = PLAYER_LOOKUP(?) AND m.loser = PLAYER_LOOKUP(?))
+                OR
+                (m.winner = PLAYER_LOOKUP(?) AND m.loser = PLAYER_LOOKUP(?))
+              )
+            ORDER BY e.date DESC, e.id DESC, m.id DESC
+            LIMIT 20
+            """,
+            [
+                MySQLData(string: playerA),
+                MySQLData(string: playerB),
+                MySQLData(string: playerB),
+                MySQLData(string: playerA)
+            ]
+        ).get()
+
+        return rows.compactMap { row in
+            guard
+                let id = row.string("id"),
+                let date = row.string("event_date"),
+                let event = row.string("event_name"),
+                let winner = row.string("winner_name"),
+                let loser = row.string("loser_name")
+            else {
+                return nil
+            }
+
+            return HeadToHeadMatch(
+                id: id,
+                date: date,
+                tournament: event,
+                surface: row.string("event_surface"),
+                winnerName: winner,
+                winnerRank: row.int("winner_rank"),
+                loserName: loser,
+                loserRank: row.int("loser_rank"),
+                score: row.string("score")
+            )
+        }
+    }
+
     private func loadRankingHistory(name: String, on connection: MySQLConnection) async throws -> [RankingHistoryPoint] {
         let rows = try await connection.query(
             """
@@ -519,6 +788,9 @@ struct ATPDatabase {
             rankingHistoryB: [],
             headToHeadWinsA: 0,
             headToHeadWinsB: 0,
+            headToHeadMatches: [],
+            upsetWins: [],
+            warningLosses: [],
             modelA: pricedA > 0 ? roundOdds(1 / pricedA) : nil,
             modelB: pricedB > 0 ? roundOdds(1 / pricedB) : nil,
             winFactorA: winFactorA
@@ -555,6 +827,10 @@ struct ATPDatabase {
 
 private func roundOdds(_ value: Double) -> Double {
     (value * 100).rounded() / 100
+}
+
+private func signalSort(_ lhs: MatchSignal, _ rhs: MatchSignal) -> Bool {
+    lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
 }
 
 private extension MySQLRow {

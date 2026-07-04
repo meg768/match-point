@@ -202,7 +202,7 @@ private enum OddsetClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .http(let label, let statusCode):
-            return "Oddset \(label) returned HTTP \(statusCode)."
+            return "Oddset \(label) svarade med HTTP \(statusCode)."
         }
     }
 }

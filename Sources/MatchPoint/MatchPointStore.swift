@@ -16,6 +16,7 @@ final class MatchPointStore: ObservableObject {
     @Published var isLoadingIntelligence = false
     @Published var isLoadingDashboard = false
     @Published var status: MatchPointStatus = .idle
+    private var dashboardLoadGeneration = 0
 
     var selectedMatch: TennisMatch? {
         matches.first { $0.id == selectedMatchID } ?? matches.first
@@ -37,7 +38,7 @@ final class MatchPointStore: ObservableObject {
         }
 
         isLoading = true
-        status = .loading("Reading matches...")
+        status = .loading("Läser matcher...")
 
         let oddsetSnapshot = await loadOddsetMatches()
 
@@ -48,13 +49,15 @@ final class MatchPointStore: ObservableObject {
                 selectedOddsetMatchID = matches.first?.id
             }
             resolveAutomaticSurface()
-            status = .ready("Loaded \(matches.filter { $0.state == .live }.count) live and \(matches.filter { $0.state == .upcoming }.count) upcoming matches.")
-            await loadDashboardForSelectedOddsetMatch()
+            status = .ready("Laddade \(matches.filter { $0.state == .live }.count) live och \(matches.filter { $0.state == .upcoming }.count) kommande matcher.")
+            if shouldReloadDashboard {
+                await loadDashboardForSelectedOddsetMatch()
+            }
         case .failure:
             oddsetMatches = []
             selectedOddsetMatchID = nil
             dashboard = nil
-            status = .failed("Matches unavailable.")
+            status = .failed("Matcher är inte tillgängliga.")
         }
 
         isLoading = false
@@ -69,6 +72,10 @@ final class MatchPointStore: ObservableObject {
     }
 
     func select(oddsetMatch: OddsetMatch) {
+        guard selectedOddsetMatchID != oddsetMatch.id else {
+            return
+        }
+
         selectedOddsetMatchID = oddsetMatch.id
         dashboard = nil
         resolveAutomaticSurface()
@@ -108,6 +115,14 @@ final class MatchPointStore: ObservableObject {
         surfaceMode.surface ?? match?.inferredSurface ?? .grass
     }
 
+    private var shouldReloadDashboard: Bool {
+        guard let selectedOddsetMatchID else {
+            return false
+        }
+
+        return dashboard?.matchID != selectedOddsetMatchID || dashboard?.surface != selectedSurface
+    }
+
     func loadIntelligenceForSelectedMatch() async {
         guard let match = selectedMatch else {
             return
@@ -130,12 +145,26 @@ final class MatchPointStore: ObservableObject {
             return
         }
 
+        dashboardLoadGeneration += 1
+        let generation = dashboardLoadGeneration
+        let requestedMatchID = match.id
+        let requestedSurface = selectedSurface
         isLoadingDashboard = true
+
         do {
             let database = ATPDatabase(settings: databaseSettings)
-            dashboard = try await database.loadDashboard(match: match, surface: selectedSurface)
+            let loadedDashboard = try await database.loadDashboard(match: match, surface: requestedSurface)
+            guard dashboardLoadGeneration == generation, selectedOddsetMatchID == requestedMatchID, selectedSurface == requestedSurface else {
+                return
+            }
+
+            dashboard = loadedDashboard
             isLoadingDashboard = false
         } catch {
+            guard dashboardLoadGeneration == generation, selectedOddsetMatchID == requestedMatchID, selectedSurface == requestedSurface else {
+                return
+            }
+
             dashboard = nil
             isLoadingDashboard = false
         }

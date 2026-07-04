@@ -22,11 +22,11 @@ enum TennisSurface: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .grass:
-            return "Grass"
+            return "Gräs"
         case .clay:
-            return "Clay"
+            return "Grus"
         case .hard:
-            return "Hard"
+            return "Hardcourt"
         }
     }
 }
@@ -118,7 +118,7 @@ enum OddsetMatchState: String, Equatable {
         case .live:
             return "Live"
         case .upcoming:
-            return "Upcoming"
+            return "Kommande"
         }
     }
 }
@@ -133,11 +133,11 @@ enum MatchListFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all:
-            return "All"
+            return "Alla"
         case .live:
             return "Live"
         case .upcoming:
-            return "Upcoming"
+            return "Kommande"
         }
     }
 }
@@ -179,7 +179,7 @@ struct OddsetMatch: Identifiable, Equatable {
     }
 
     var displayScore: String {
-        score?.isEmpty == false ? score! : (state == .live ? "Live" : "Not started")
+        score?.isEmpty == false ? score! : (state == .live ? "Live" : "Ej startad")
     }
 
     var inferredSurface: TennisSurface {
@@ -224,6 +224,10 @@ struct PlayerDashboardStats: Identifiable, Equatable {
     let highestRank: Int?
     let highestRankDate: String?
     let careerTitles: Int?
+    let grandSlamTitles: Int
+    let mastersTitles: Int
+    let atp500Titles: Int
+    let atp250Titles: Int
     let careerPrize: Int?
     let ytdWins: Int?
     let ytdLosses: Int?
@@ -238,6 +242,8 @@ struct PlayerDashboardStats: Identifiable, Equatable {
     let grassElo: Int?
     let totalMatches: Int
     let totalWins: Int
+    let formMatches: Int
+    let formWins: Int
     let recentMatches: Int
     let recentWins: Int
     let surfaceMatches: Int
@@ -254,6 +260,7 @@ struct PlayerDashboardStats: Identifiable, Equatable {
     }
 
     var totalLosses: Int { max(0, totalMatches - totalWins) }
+    var formLosses: Int { max(0, formMatches - formWins) }
     var recentLosses: Int { max(0, recentMatches - recentWins) }
     var surfaceLosses: Int { max(0, surfaceMatches - surfaceWins) }
     var hardLosses: Int { max(0, hardMatches - hardWins) }
@@ -261,6 +268,14 @@ struct PlayerDashboardStats: Identifiable, Equatable {
     var grassLosses: Int { max(0, grassMatches - grassWins) }
     var careerWinsForDisplay: Int { totalWins }
     var careerLossesForDisplay: Int { totalLosses }
+    var bmi: Double? {
+        guard let height, let weight, height > 0 else {
+            return nil
+        }
+
+        let meters = Double(height) / 100
+        return Double(weight) / (meters * meters)
+    }
 
     var winPercentage: Double? {
         percentage(wins: totalWins, matches: totalMatches)
@@ -268,6 +283,15 @@ struct PlayerDashboardStats: Identifiable, Equatable {
 
     var recentWinPercentage: Double? {
         percentage(wins: recentWins, matches: recentMatches)
+    }
+
+    var formScore: Int? {
+        guard formMatches > 0 else {
+            return nil
+        }
+
+        let ratio = Double(formWins) / Double(formMatches)
+        return min(5, max(1, Int((ratio * 5).rounded())))
     }
 
     var surfaceWinPercentage: Double? {
@@ -289,6 +313,30 @@ struct RankingHistoryPoint: Identifiable, Equatable {
     let rank: Int
 }
 
+struct HeadToHeadMatch: Identifiable, Equatable {
+    let id: String
+    let date: String
+    let tournament: String
+    let surface: String?
+    let winnerName: String
+    let winnerRank: Int?
+    let loserName: String
+    let loserRank: Int?
+    let score: String?
+}
+
+struct MatchSignal: Identifiable, Equatable {
+    let id: String
+    let date: String
+    let tournament: String
+    let surface: String?
+    let winnerName: String
+    let winnerRank: Int?
+    let loserName: String
+    let loserRank: Int?
+    let score: String?
+}
+
 struct MatchDashboard: Equatable {
     let matchID: String
     let surface: TennisSurface
@@ -298,6 +346,9 @@ struct MatchDashboard: Equatable {
     let rankingHistoryB: [RankingHistoryPoint]
     let headToHeadWinsA: Int
     let headToHeadWinsB: Int
+    let headToHeadMatches: [HeadToHeadMatch]
+    let upsetWins: [MatchSignal]
+    let warningLosses: [MatchSignal]
     let modelA: Double?
     let modelB: Double?
     let winFactorA: Double?
@@ -358,7 +409,7 @@ enum MatchPointStatus: Equatable {
     var text: String {
         switch self {
         case .idle:
-            return "Ready"
+            return "Redo"
         case .loading(let text), .ready(let text), .failed(let text):
             return text
         }
