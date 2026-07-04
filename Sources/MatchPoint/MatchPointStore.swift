@@ -151,8 +151,19 @@ final class MatchPointStore: ObservableObject {
         let requestedSurface = selectedSurface
         isLoadingDashboard = true
 
+        let database = ATPDatabase(settings: databaseSettings)
+        var hasOverview = false
+
+        if let overviewDashboard = try? await database.loadDashboardOverview(match: match, surface: requestedSurface) {
+            guard dashboardLoadGeneration == generation, selectedOddsetMatchID == requestedMatchID, selectedSurface == requestedSurface else {
+                return
+            }
+
+            dashboard = overviewDashboard
+            hasOverview = true
+        }
+
         do {
-            let database = ATPDatabase(settings: databaseSettings)
             let loadedDashboard = try await database.loadDashboard(match: match, surface: requestedSurface)
             guard dashboardLoadGeneration == generation, selectedOddsetMatchID == requestedMatchID, selectedSurface == requestedSurface else {
                 return
@@ -165,7 +176,10 @@ final class MatchPointStore: ObservableObject {
                 return
             }
 
-            dashboard = nil
+            if !hasOverview {
+                dashboard = nil
+            }
+            status = .failed("ATP-data saknas: \(error.localizedDescription)")
             isLoadingDashboard = false
         }
     }

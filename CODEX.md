@@ -73,6 +73,42 @@ come from app defaults, launch environment variables, or
 `~/Library/Application Support/Match Point/.env`, but Match Point must not read
 private files from sibling projects.
 
+## Loading And Performance Notes
+
+The match overview is intentionally moving toward a staged loading model. When a
+match is selected, show the useful ATP database overview first, then let heavier
+sections fill in afterwards. The user experience should be:
+
+1. Oddset selection changes immediately.
+2. Player overview data appears as soon as possible: name, country, rank, odds,
+   model odds, ELO, titles, profile, and form.
+3. Heavier context follows: ranking graph, previous meetings, upset signals, and
+   warning flags.
+4. Avatar loading must never block database text or stats. Headshots come from
+   ATP image URLs and may be slow or blocked; treat them as optional visual
+   enrichment.
+
+Avoid aggressive parallel MySQL connection fan-out for now. It caused unstable
+dashboard behavior and made it harder to reason about selection state. Prefer
+smaller SQL changes, staged dashboard data, and visible status/error reporting.
+
+Caching is allowed, but keep it conservative:
+
+- Good candidates for in-memory session cache: player profile/stat summaries,
+  ranking history, previous meetings, headshots, and other mostly static ATP
+  database reads.
+- Do not cache live match state: score, server, Oddset odds, selected match, or
+  current status.
+- Start with memory-only cache if needed. No disk cache or clever invalidation
+  until the behavior is proven stable.
+- If cached data is introduced, stale or partial cache entries must not make the
+  right panel show the wrong match or hide fresh data.
+
+The current delay when switching matches is understandable because several SQL
+queries run for both players. The next performance work should optimize
+`loadPlayerStats` and section-level loading rather than changing broad UI
+structure.
+
 ## Visual Design
 
 `Match Point`, `/Users/magnus/Documents/GitHub/broker-explorer`, and

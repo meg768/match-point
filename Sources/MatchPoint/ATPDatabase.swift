@@ -109,6 +109,31 @@ struct ATPDatabase {
         }
     }
 
+    func loadDashboardOverview(match: OddsetMatch, surface: TennisSurface) async throws -> MatchDashboard {
+        try await withConnection { connection in
+            let playerA = try await loadPlayerStats(name: match.playerA.name, surface: surface, on: connection)
+            let playerB = try await loadPlayerStats(name: match.playerB.name, surface: surface, on: connection)
+            let model = try? await loadModelOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, matchID: match.id, on: connection)
+
+            return MatchDashboard(
+                matchID: match.id,
+                surface: surface,
+                playerA: playerA,
+                playerB: playerB,
+                rankingHistoryA: [],
+                rankingHistoryB: [],
+                headToHeadWinsA: 0,
+                headToHeadWinsB: 0,
+                headToHeadMatches: [],
+                upsetWins: [],
+                warningLosses: [],
+                modelA: model?.modelA,
+                modelB: model?.modelB,
+                winFactorA: model?.winFactorA
+            )
+        }
+    }
+
     func enrichMatches(_ matches: [OddsetMatch]) async throws -> [OddsetMatch] {
         try await withConnection { connection in
             var playersByName: [String: MatchPlayer] = [:]

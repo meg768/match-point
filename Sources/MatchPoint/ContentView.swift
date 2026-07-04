@@ -1952,7 +1952,6 @@ struct CountryBadge: View {
 struct PlayerHeadshot: View {
     let url: URL?
     let name: String
-    @State private var image: NSImage?
 
     var body: some View {
         GeometryReader { proxy in
@@ -1967,16 +1966,19 @@ struct PlayerHeadshot: View {
                             .fill(AppColors.primaryStrong.opacity(0.12))
                     }
 
-                if let image {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: imageSize, height: imageSize)
-                } else {
-                    Text(initials)
-                        .font(.system(size: max(18, imageSize * 0.2), weight: .black, design: .rounded))
-                        .foregroundStyle(AppColors.heading.opacity(0.32))
-                        .frame(width: imageSize, height: imageSize)
+                AsyncImage(url: url, transaction: Transaction(animation: nil)) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: imageSize, height: imageSize)
+                    default:
+                        Text(initials)
+                            .font(.system(size: max(18, imageSize * 0.2), weight: .black, design: .rounded))
+                            .foregroundStyle(AppColors.heading.opacity(0.32))
+                            .frame(width: imageSize, height: imageSize)
+                    }
                 }
             }
             .frame(width: size, height: size)
@@ -1990,57 +1992,12 @@ struct PlayerHeadshot: View {
         .transaction { transaction in
             transaction.animation = nil
         }
-        .task(id: url) {
-            await loadImage()
-        }
     }
 
     private var initials: String {
         let parts = name.split(separator: " ")
         let letters = parts.prefix(2).compactMap(\.first).map(String.init)
         return letters.joined().uppercased()
-    }
-
-    private func loadImage() async {
-        guard let url else {
-            image = nil
-            return
-        }
-
-        if let cached = HeadshotImageCache.shared.image(for: url) {
-            image = cached
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let loadedImage = NSImage(data: data) else {
-                return
-            }
-
-            HeadshotImageCache.shared.insert(loadedImage, for: url)
-            image = loadedImage
-        } catch {
-            image = nil
-        }
-    }
-}
-
-final class HeadshotImageCache {
-    static let shared = HeadshotImageCache()
-
-    private let cache = NSCache<NSURL, NSImage>()
-
-    private init() {
-        cache.countLimit = 400
-    }
-
-    func image(for url: URL) -> NSImage? {
-        cache.object(forKey: url as NSURL)
-    }
-
-    func insert(_ image: NSImage, for url: URL) {
-        cache.setObject(image, forKey: url as NSURL)
     }
 }
 
