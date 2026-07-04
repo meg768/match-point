@@ -68,6 +68,31 @@ daily tennis workflow instead of adding more panels by default. Good next steps
 are likely about deciding what Magnus wants to inspect first, then simplifying
 the visible surface around that.
 
+Evening product conclusion from July 5: the right-side match overview is the
+main product surface. It should act like the player's/match's inspector in
+context instead of opening a separate `Player Inspector` sheet/dialog/window.
+Keep the workflow KISS:
+
+1. Select a match in the left mail-like list.
+2. Read the player comparison in the right panel.
+3. Scroll vertically through compact sections when more depth is needed.
+4. Avoid extra modal layers unless there is a very clear reason.
+
+The current right-panel section stack is a good direction:
+
+- `ÖVERSIKT`
+- `ELO`
+- `TITLAR`
+- `SKRÄLLAR`
+- `VARNINGSFLAGGOR`
+- `PROFIL`
+- `RANKING`
+- `TIDIGARE MÖTEN`
+
+Treat these sections as the primary comparison model. If deeper player detail
+is needed later, first consider adding or refining a section in the right panel
+before introducing a new sheet.
+
 Keep database credentials out of the repository. Runtime database settings may
 come from app defaults, launch environment variables, or
 `~/Library/Application Support/Match Point/.env`, but Match Point must not read
