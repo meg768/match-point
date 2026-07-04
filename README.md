@@ -11,7 +11,7 @@ First cut:
 - direct database connection to `pi-sql` / `atp`
 - live and upcoming ATP-family matches from Kambi/Svenska Spel Oddset
 - recent completed/imported matches
-- computed SQL model odds from `PLAYER_WIN_FACTOR`
+- Tennis Abstract odds derived from TA Elo ratings
 - ATP ranking context
 - shared tennis themes with `Broker Explorer` and `LAN Scanner`
 

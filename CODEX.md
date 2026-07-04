@@ -8,7 +8,7 @@ MariaDB database.
 It is a separate project from `tennis.egelberg.se` and must not rely on
 `tennis.egelberg.se` at runtime. The app is meant to be a local instrument, not
 a web product: open the app, read the ATP database directly, inspect recent
-matches, compare SQL model odds, and keep ranking context close at hand.
+matches, compare Tennis Abstract odds, and keep ranking context close at hand.
 
 ## Repository
 
@@ -32,7 +32,22 @@ Current first-cut database reads:
 
 - recent rows from `matches` joined to `events` and `players`
 - top rankings from `players`
-- model odds through `PLAYER_WIN_FACTOR(...)`
+- Tennis Abstract odds derived from TA Elo ratings
+
+Tennis Abstract integration note:
+
+- Match Point now reads Tennis Abstract directly from
+  `https://tennisabstract.com/reports/atp_elo_ratings.html`.
+- This is intentionally implemented locally in Swift. Do not call Vitel,
+  `atp-tennis`, `tennis.egelberg.se`, localhost, or `/api/odds` at runtime.
+- The TA report is a static HTML table. The app parses the player row, picks the
+  surface Elo (`hard`, `clay`, `grass`), converts Elo difference to probability,
+  then converts that probability to decimal odds with a 5% margin.
+- The UI label should be `TA`, not `Modell`. Conceptually this is TA-based
+  baseline odds, while Oddset is the live market.
+- If Tennis Abstract changes layout, TA odds may disappear, but the app should
+  keep working: Oddset, database stats, ranking, ELO, titles, profile, previous
+  meetings, avatars, and other sections must not depend on TA succeeding.
 
 Oddset/Kambi is allowed as a separate runtime source for live and upcoming
 tennis matches. Keep that client implemented locally inside Match Point; do not
@@ -106,7 +121,7 @@ sections fill in afterwards. The user experience should be:
 
 1. Oddset selection changes immediately.
 2. Player overview data appears as soon as possible: name, country, rank, odds,
-   model odds, ELO, titles, profile, and form.
+   TA odds, ELO, titles, profile, and form.
 3. Heavier context follows: ranking graph, previous meetings, upset signals, and
    warning flags.
 4. Avatar loading must never block database text or stats. Headshots come from

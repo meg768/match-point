@@ -1073,7 +1073,7 @@ struct PlayerInfoColumn: View {
 
                 VStack(spacing: 0) {
                     PlayerInfoRow(label: "Oddset", value: market.map(formatOdds) ?? "-")
-                    PlayerInfoRow(label: "Modell", value: model.map(formatOdds) ?? "-")
+                    PlayerInfoRow(label: "TA", value: model.map(formatOdds) ?? "-")
                     PlayerInfoRow(label: "Vinst", value: winFactor.map { "\(formatPercent($0 * 100))%" } ?? "-")
                     PlayerInfoRow(label: "I år", value: record(wins: stats?.ytdWins, losses: stats?.ytdLosses))
                     PlayerInfoRow(label: "Karriär", value: stats.map { "\($0.totalWins)-\($0.totalLosses)" } ?? "-")
@@ -1727,7 +1727,7 @@ struct MatchComparisonPanel: View {
 
             VStack(spacing: 0) {
                 ComparisonRow(label: "Oddset", left: match.playerA.odds.map(formatOdds) ?? "-", right: match.playerB.odds.map(formatOdds) ?? "-")
-                ComparisonRow(label: "Modell", left: dashboard?.modelA.map(formatOdds) ?? "-", right: dashboard?.modelB.map(formatOdds) ?? "-")
+                ComparisonRow(label: "TA", left: dashboard?.modelA.map(formatOdds) ?? "-", right: dashboard?.modelB.map(formatOdds) ?? "-")
                 ComparisonRow(label: "Vinst", left: dashboard?.winFactorA.map { "\(formatPercent($0 * 100))%" } ?? "-", right: dashboard?.winFactorB.map { "\(formatPercent($0 * 100))%" } ?? "-")
                 ComparisonRow(label: "Ranking", left: rank(dashboard?.playerA?.rank), right: rank(dashboard?.playerB?.rank))
                 ComparisonRow(label: "ELO", left: value(dashboard?.playerA?.eloRank), right: value(dashboard?.playerB?.eloRank))
@@ -2238,12 +2238,12 @@ struct MatchCard: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.7)
-                        Text("Beräknar modellodds...")
+                        Text("Hämtar TA-odds...")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(AppColors.badgeText)
                     }
                 } else if intelligence == nil {
-                    Text("Modellodds saknas för den här matchen.")
+                    Text("TA-odds saknas för den här matchen.")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(AppColors.badgeText)
                 }
@@ -2272,7 +2272,7 @@ struct PlayerOddsCard: View {
                 .foregroundStyle(AppColors.heading)
                 .lineLimit(1)
 
-            OddsMetric(title: "Modell", value: model)
+            OddsMetric(title: "TA", value: model)
 
             if let winFactor {
                 HStack {
@@ -2425,7 +2425,7 @@ struct WatchPanel: View {
 
             Spacer()
 
-            Text("Direkt DB-vy: senaste matcher, rankingkontext och SQL-modellodds från PLAYER_WIN_FACTOR.")
+            Text("Direkt DB-vy: senaste matcher, rankingkontext och TA-odds.")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AppColors.badgeText)
                 .fixedSize(horizontal: false, vertical: true)

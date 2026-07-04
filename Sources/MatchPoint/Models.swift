@@ -356,6 +356,25 @@ struct MatchDashboard: Equatable {
     var winFactorB: Double? {
         winFactorA.map { 1 - $0 }
     }
+
+    func withModelOdds(_ odds: TennisAbstractOdds?) -> MatchDashboard {
+        MatchDashboard(
+            matchID: matchID,
+            surface: surface,
+            playerA: playerA,
+            playerB: playerB,
+            rankingHistoryA: rankingHistoryA,
+            rankingHistoryB: rankingHistoryB,
+            headToHeadWinsA: headToHeadWinsA,
+            headToHeadWinsB: headToHeadWinsB,
+            headToHeadMatches: headToHeadMatches,
+            upsetWins: upsetWins,
+            warningLosses: warningLosses,
+            modelA: odds?.oddsA,
+            modelB: odds?.oddsB,
+            winFactorA: odds?.probabilityA
+        )
+    }
 }
 
 extension MatchPlayer {

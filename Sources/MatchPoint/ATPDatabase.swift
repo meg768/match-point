@@ -5,14 +5,11 @@ import NIOPosix
 
 enum ATPDatabaseError: LocalizedError {
     case invalidHost
-    case missingWinFactor
 
     var errorDescription: String? {
         switch self {
         case .invalidHost:
             return "Ogiltig databashost eller port."
-        case .missingWinFactor:
-            return "Modellen kunde inte beräkna vinstfaktor för den här matchen."
         }
     }
 }
@@ -32,15 +29,14 @@ struct ATPDatabase {
         let playerA = match.playerA.id ?? match.playerA.name
         let playerB = match.playerB.id ?? match.playerB.name
 
-        return try await withConnection { connection in
+        let resolved = try await withConnection { connection in
             let rows = try await connection.query(
                 """
                 SELECT
                     pa.id AS player_a,
                     pa.name AS name_a,
                     pb.id AS player_b,
-                    pb.name AS name_b,
-                    PLAYER_WIN_FACTOR(pa.id, pb.id, ?) AS win_factor_a
+                    pb.name AS name_b
                 FROM players pa
                 JOIN players pb
                 WHERE pa.id = PLAYER_LOOKUP(?)
@@ -49,33 +45,36 @@ struct ATPDatabase {
                 LIMIT 1
                 """,
                 [
-                    MySQLData(string: surface.rawValue.capitalized),
                     MySQLData(string: playerA),
                     MySQLData(string: playerB)
                 ]
             ).get()
 
-            guard let row = rows.first, let winFactorA = row.double("win_factor_a"), winFactorA > 0, winFactorA < 1 else {
-                throw ATPDatabaseError.missingWinFactor
+            guard let row = rows.first else {
+                throw TennisAbstractOddsError.playerNotFound("\(playerA) / \(playerB)")
             }
 
-            let pricedA = winFactorA * 1.05
-            let pricedB = (1 - winFactorA) * 1.05
-
-            return MatchIntelligence(
-                matchID: match.id,
-                surface: surface,
+            return (
                 playerA: row.string("name_a") ?? match.playerA.name,
-                playerB: row.string("name_b") ?? match.playerB.name,
-                modelA: pricedA > 0 ? roundOdds(1 / pricedA) : nil,
-                modelB: pricedB > 0 ? roundOdds(1 / pricedB) : nil,
-                winFactorA: winFactorA
+                playerB: row.string("name_b") ?? match.playerB.name
             )
         }
+
+        let odds = try await loadTennisAbstractOdds(playerA: resolved.playerA, playerB: resolved.playerB, surface: surface)
+
+        return MatchIntelligence(
+            matchID: match.id,
+            surface: surface,
+            playerA: resolved.playerA,
+            playerB: resolved.playerB,
+            modelA: odds.oddsA,
+            modelB: odds.oddsB,
+            winFactorA: odds.probabilityA
+        )
     }
 
     func loadDashboard(match: OddsetMatch, surface: TennisSurface) async throws -> MatchDashboard {
-        try await withConnection { connection in
+        let dashboard = try await withConnection { connection in
             let playerA = try await loadPlayerStats(name: match.playerA.name, surface: surface, on: connection)
             let playerB = try await loadPlayerStats(name: match.playerB.name, surface: surface, on: connection)
             let rankingHistoryA = try await loadRankingHistory(name: match.playerA.name, on: connection)
@@ -85,7 +84,6 @@ struct ATPDatabase {
             let emptySignals: (upsets: [MatchSignal], warnings: [MatchSignal]) = ([], [])
             let signalsA = (try? await loadMatchSignals(playerName: match.playerA.name, on: connection)) ?? emptySignals
             let signalsB = (try? await loadMatchSignals(playerName: match.playerB.name, on: connection)) ?? emptySignals
-            let model = try? await loadModelOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, matchID: match.id, on: connection)
             let signals = [signalsA, signalsB]
             let upsetWins = Array(signals.flatMap(\.upsets).sorted(by: signalSort).prefix(4))
             let warningLosses = Array(signals.flatMap(\.warnings).sorted(by: signalSort).prefix(4))
@@ -102,18 +100,24 @@ struct ATPDatabase {
                 headToHeadMatches: headToHeadMatches,
                 upsetWins: upsetWins,
                 warningLosses: warningLosses,
-                modelA: model?.modelA,
-                modelB: model?.modelB,
-                winFactorA: model?.winFactorA
+                modelA: nil,
+                modelB: nil,
+                winFactorA: nil
             )
         }
+
+        let odds = try? await loadTennisAbstractOdds(
+            playerA: dashboard.playerA?.name ?? match.playerA.name,
+            playerB: dashboard.playerB?.name ?? match.playerB.name,
+            surface: surface
+        )
+        return dashboard.withModelOdds(odds)
     }
 
     func loadDashboardOverview(match: OddsetMatch, surface: TennisSurface) async throws -> MatchDashboard {
-        try await withConnection { connection in
+        let dashboard = try await withConnection { connection in
             let playerA = try await loadPlayerStats(name: match.playerA.name, surface: surface, on: connection)
             let playerB = try await loadPlayerStats(name: match.playerB.name, surface: surface, on: connection)
-            let model = try? await loadModelOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, matchID: match.id, on: connection)
 
             return MatchDashboard(
                 matchID: match.id,
@@ -127,11 +131,18 @@ struct ATPDatabase {
                 headToHeadMatches: [],
                 upsetWins: [],
                 warningLosses: [],
-                modelA: model?.modelA,
-                modelB: model?.modelB,
-                winFactorA: model?.winFactorA
+                modelA: nil,
+                modelB: nil,
+                winFactorA: nil
             )
         }
+
+        let odds = try? await loadTennisAbstractOdds(
+            playerA: dashboard.playerA?.name ?? match.playerA.name,
+            playerB: dashboard.playerB?.name ?? match.playerB.name,
+            surface: surface
+        )
+        return dashboard.withModelOdds(odds)
     }
 
     func enrichMatches(_ matches: [OddsetMatch]) async throws -> [OddsetMatch] {
@@ -783,43 +794,8 @@ struct ATPDatabase {
         }
     }
 
-    private func loadModelOdds(playerA: String, playerB: String, surface: TennisSurface, matchID: String, on connection: MySQLConnection) async throws -> MatchDashboard {
-        let rows = try await connection.query(
-            """
-            SELECT
-                PLAYER_WIN_FACTOR(PLAYER_LOOKUP(?), PLAYER_LOOKUP(?), ?) AS win_factor_a
-            LIMIT 1
-            """,
-            [
-                MySQLData(string: playerA),
-                MySQLData(string: playerB),
-                MySQLData(string: surface.rawValue.capitalized)
-            ]
-        ).get()
-
-        guard let row = rows.first, let winFactorA = row.double("win_factor_a"), winFactorA > 0, winFactorA < 1 else {
-            throw ATPDatabaseError.missingWinFactor
-        }
-
-        let pricedA = winFactorA * 1.05
-        let pricedB = (1 - winFactorA) * 1.05
-
-        return MatchDashboard(
-            matchID: matchID,
-            surface: surface,
-            playerA: nil,
-            playerB: nil,
-            rankingHistoryA: [],
-            rankingHistoryB: [],
-            headToHeadWinsA: 0,
-            headToHeadWinsB: 0,
-            headToHeadMatches: [],
-            upsetWins: [],
-            warningLosses: [],
-            modelA: pricedA > 0 ? roundOdds(1 / pricedA) : nil,
-            modelB: pricedB > 0 ? roundOdds(1 / pricedB) : nil,
-            winFactorA: winFactorA
-        )
+    private func loadTennisAbstractOdds(playerA: String, playerB: String, surface: TennisSurface) async throws -> TennisAbstractOdds {
+        try await TennisAbstractOddsClient.shared.loadOdds(playerA: playerA, playerB: playerB, surface: surface)
     }
 
     private func withConnection<T>(_ work: (MySQLConnection) async throws -> T) async throws -> T {
