@@ -325,18 +325,6 @@ struct HeadToHeadMatch: Identifiable, Equatable {
     let score: String?
 }
 
-struct MatchSignal: Identifiable, Equatable {
-    let id: String
-    let date: String
-    let tournament: String
-    let surface: String?
-    let winnerName: String
-    let winnerRank: Int?
-    let loserName: String
-    let loserRank: Int?
-    let score: String?
-}
-
 struct MatchDashboard: Equatable {
     let matchID: String
     let surface: TennisSurface
@@ -347,8 +335,6 @@ struct MatchDashboard: Equatable {
     let headToHeadWinsA: Int
     let headToHeadWinsB: Int
     let headToHeadMatches: [HeadToHeadMatch]
-    let upsetWins: [MatchSignal]
-    let warningLosses: [MatchSignal]
     let modelA: Double?
     let modelB: Double?
     let winFactorA: Double?
@@ -368,8 +354,6 @@ struct MatchDashboard: Equatable {
             headToHeadWinsA: headToHeadWinsA,
             headToHeadWinsB: headToHeadWinsB,
             headToHeadMatches: headToHeadMatches,
-            upsetWins: upsetWins,
-            warningLosses: warningLosses,
             modelA: odds?.oddsA,
             modelB: odds?.oddsB,
             winFactorA: odds?.probabilityA

@@ -81,12 +81,6 @@ struct ATPDatabase {
             let rankingHistoryB = try await loadRankingHistory(name: match.playerB.name, on: connection)
             let headToHead = try await loadHeadToHead(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
             let headToHeadMatches = try await loadHeadToHeadMatches(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
-            let emptySignals: (upsets: [MatchSignal], warnings: [MatchSignal]) = ([], [])
-            let signalsA = (try? await loadMatchSignals(playerName: match.playerA.name, on: connection)) ?? emptySignals
-            let signalsB = (try? await loadMatchSignals(playerName: match.playerB.name, on: connection)) ?? emptySignals
-            let signals = [signalsA, signalsB]
-            let upsetWins = Array(signals.flatMap(\.upsets).sorted(by: signalSort).prefix(4))
-            let warningLosses = Array(signals.flatMap(\.warnings).sorted(by: signalSort).prefix(4))
 
             return MatchDashboard(
                 matchID: match.id,
@@ -98,8 +92,6 @@ struct ATPDatabase {
                 headToHeadWinsA: headToHead.playerAWins,
                 headToHeadWinsB: headToHead.playerBWins,
                 headToHeadMatches: headToHeadMatches,
-                upsetWins: upsetWins,
-                warningLosses: warningLosses,
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil
@@ -129,8 +121,6 @@ struct ATPDatabase {
                 headToHeadWinsA: 0,
                 headToHeadWinsB: 0,
                 headToHeadMatches: [],
-                upsetWins: [],
-                warningLosses: [],
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil
@@ -506,107 +496,6 @@ struct ATPDatabase {
         )
     }
 
-    private func loadMatchSignals(playerName: String, on connection: MySQLConnection) async throws -> (upsets: [MatchSignal], warnings: [MatchSignal]) {
-        let rows = try await connection.query(
-            """
-            SELECT
-                recent.id,
-                recent.event_date,
-                recent.event_name,
-                recent.event_surface,
-                recent.winner_name,
-                recent.winner_rank,
-                recent.loser_name,
-                recent.loser_rank,
-                recent.score,
-                recent.player_won,
-                recent.own_rank,
-                recent.opponent_rank
-            FROM (
-                SELECT
-                    m.id,
-                    DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
-                    e.name AS event_name,
-                    e.surface AS event_surface,
-                    winner.name AS winner_name,
-                    m.winner_rank,
-                    loser.name AS loser_name,
-                    m.loser_rank,
-                    m.score,
-                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN 1 ELSE 0 END AS player_won,
-                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN m.winner_rank ELSE m.loser_rank END AS own_rank,
-                    CASE WHEN m.winner = PLAYER_LOOKUP(?) THEN m.loser_rank ELSE m.winner_rank END AS opponent_rank,
-                    e.date,
-                    e.id AS event_id
-                FROM matches m
-                JOIN events e ON e.id = m.event
-                JOIN players winner ON winner.id = m.winner
-                JOIN players loser ON loser.id = m.loser
-                WHERE e.date IS NOT NULL
-                  AND e.type IN ('Grand Slam', 'Masters', 'ATP-500', 'ATP-250')
-                  AND m.winner IS NOT NULL
-                  AND m.loser IS NOT NULL
-                  AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
-                ORDER BY e.date DESC, e.id DESC, m.id DESC
-                LIMIT 12
-            ) recent
-            """,
-            [
-                MySQLData(string: playerName),
-                MySQLData(string: playerName),
-                MySQLData(string: playerName),
-                MySQLData(string: playerName),
-                MySQLData(string: playerName)
-            ]
-        ).get()
-
-        var upsets: [MatchSignal] = []
-        var warnings: [MatchSignal] = []
-
-        for row in rows {
-            guard let signal = makeMatchSignal(row) else {
-                continue
-            }
-
-            let playerWon = (row.int("player_won") ?? 0) == 1
-            guard let ownRank = row.int("own_rank"), let opponentRank = row.int("opponent_rank") else {
-                continue
-            }
-
-            if playerWon, opponentRank < ownRank, ownRank - opponentRank >= 15 {
-                upsets.append(signal)
-            } else if !playerWon, opponentRank > ownRank, opponentRank - ownRank >= 20 {
-                warnings.append(signal)
-            }
-        }
-
-        return (upsets, warnings)
-    }
-
-    private func makeMatchSignal(_ row: MySQLRow) -> MatchSignal? {
-        guard
-            let id = row.string("id"),
-            let date = row.string("event_date"),
-            let tournament = row.string("event_name"),
-            let winnerName = row.string("winner_name"),
-            let loserName = row.string("loser_name")
-        else {
-            return nil
-        }
-
-        return MatchSignal(
-            id: id,
-            date: date,
-            tournament: tournament,
-            surface: row.string("event_surface"),
-            winnerName: winnerName,
-            winnerRank: row.int("winner_rank"),
-            loserName: loserName,
-            loserRank: row.int("loser_rank"),
-            score: row.string("score")
-        )
-    }
-
     private func loadMatchPlayer(name: String, fallbackOdds: Double?, on connection: MySQLConnection) async throws -> MatchPlayer? {
         let rows = try await connection.query(
             """
@@ -828,10 +717,6 @@ struct ATPDatabase {
 
 private func roundOdds(_ value: Double) -> Double {
     (value * 100).rounded() / 100
-}
-
-private func signalSort(_ lhs: MatchSignal, _ rhs: MatchSignal) -> Bool {
-    lhs.date == rhs.date ? lhs.id > rhs.id : lhs.date > rhs.date
 }
 
 private extension MySQLRow {

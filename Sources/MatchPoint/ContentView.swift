@@ -558,8 +558,8 @@ struct DashboardPanel: View {
                 FieldLabel("Matchöversikt")
 
                 if let match {
-                    MatchOverviewPanel(match: match, dashboard: dashboard, onInspectPlayer: onInspectPlayer)
-                    RankingHistoryPanel(match: match, dashboard: dashboard)
+                    MatchOverviewPanel(match: match, dashboard: dashboard, isLoading: isLoading, onInspectPlayer: onInspectPlayer)
+                    RankingHistoryPanel(match: match, dashboard: dashboard, isLoading: isLoading)
                 } else {
                     EmptyState(text: "Ingen live eller kommande match vald.", systemImage: "tennisball")
                 }
@@ -613,6 +613,7 @@ struct MatchTitleLine: View {
 struct MatchOverviewPanel: View {
     let match: OddsetMatch
     let dashboard: MatchDashboard?
+    let isLoading: Bool
     let onInspectPlayer: (PlayerInspectorContext) -> Void
 
     var body: some View {
@@ -630,12 +631,9 @@ struct MatchOverviewPanel: View {
             }
 
             EqualPlayerColumns(match: match, dashboard: dashboard, onInspectPlayer: onInspectPlayer)
-            PlayerEloColumns(dashboard: dashboard)
             PlayerTitleColumns(dashboard: dashboard)
-            MatchSignalsPanel(title: "Skrällar", signals: dashboard?.upsetWins ?? [], emptyText: "Inga tydliga skrällar.", isPositive: true)
-            MatchSignalsPanel(title: "Varningsflaggor", signals: dashboard?.warningLosses ?? [], emptyText: "Inga tydliga varningsflaggor.", isPositive: false)
             PlayerProfileColumns(dashboard: dashboard)
-            HeadToHeadMatchesPanel(dashboard: dashboard)
+            HeadToHeadMatchesPanel(dashboard: dashboard, isLoading: isLoading)
         }
         .padding(.bottom, 2)
     }
@@ -687,6 +685,7 @@ struct EqualPlayerColumns: View {
                 HStack(alignment: .top, spacing: spacing) {
                     PlayerStatsTable(
                         stats: dashboard?.playerA,
+                        surface: dashboard?.surface,
                         market: match.playerA.odds,
                         model: dashboard?.modelA,
                         winFactor: dashboard?.winFactorA,
@@ -696,6 +695,7 @@ struct EqualPlayerColumns: View {
 
                     PlayerStatsTable(
                         stats: dashboard?.playerB,
+                        surface: dashboard?.surface,
                         market: match.playerB.odds,
                         model: dashboard?.modelB,
                         winFactor: dashboard?.winFactorB,
@@ -705,7 +705,7 @@ struct EqualPlayerColumns: View {
                 }
             }
         }
-        .frame(height: 362)
+        .frame(height: 395)
     }
 
     private var shouldShowScore: Bool {
@@ -742,48 +742,6 @@ struct EqualPlayerColumns: View {
                 rankingHistory: dashboard?.rankingHistoryB ?? []
             )
         )
-    }
-}
-
-struct PlayerEloColumns: View {
-    let dashboard: MatchDashboard?
-
-    private let spacing: CGFloat = 18
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            FieldLabel("ELO")
-
-            GeometryReader { proxy in
-                let columnWidth = max(220, (proxy.size.width - spacing) / 2)
-
-                HStack(alignment: .top, spacing: spacing) {
-                    PlayerEloTable(stats: dashboard?.playerA)
-                        .frame(width: columnWidth)
-                    PlayerEloTable(stats: dashboard?.playerB)
-                        .frame(width: columnWidth)
-                }
-            }
-        }
-        .frame(height: 156)
-    }
-}
-
-struct PlayerEloTable: View {
-    let stats: PlayerDashboardStats?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            PlayerInfoRow(label: "Totalt", value: stats?.eloRank.map(String.init) ?? "-")
-            PlayerInfoRow(label: "Hardcourt", value: stats?.hardElo.map(String.init) ?? "-")
-            PlayerInfoRow(label: "Grus", value: stats?.clayElo.map(String.init) ?? "-")
-            PlayerInfoRow(label: "Gräs", value: stats?.grassElo.map(String.init) ?? "-")
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
-        }
     }
 }
 
@@ -933,6 +891,7 @@ struct PlayerIdentityCard: View {
 
 struct PlayerStatsTable: View {
     let stats: PlayerDashboardStats?
+    let surface: TennisSurface?
     let market: Double?
     let model: Double?
     let winFactor: Double?
@@ -941,6 +900,7 @@ struct PlayerStatsTable: View {
     var body: some View {
         VStack(spacing: 0) {
             PlayerInfoRow(label: "Oddset", value: marketModelValue)
+            PlayerInfoRow(label: "ELO", value: eloValue)
             PlayerInfoRow(label: "I år", value: record(wins: stats?.ytdWins, losses: stats?.ytdLosses))
             PlayerInfoRow(label: "Karriär", value: stats.map { "\($0.totalWins)-\($0.totalLosses)" } ?? "-")
             PlayerFormRow(score: stats?.formScore)
@@ -968,6 +928,35 @@ struct PlayerStatsTable: View {
             return formatOdds(market)
         case (.none, .some(let model)):
             return "(\(formatOdds(model)))"
+        case (.none, .none):
+            return "-"
+        }
+    }
+
+    private var eloValue: String {
+        guard let stats else {
+            return "-"
+        }
+
+        let surfaceElo: Int?
+        switch surface {
+        case .grass:
+            surfaceElo = stats.grassElo
+        case .clay:
+            surfaceElo = stats.clayElo
+        case .hard:
+            surfaceElo = stats.hardElo
+        case .none:
+            surfaceElo = nil
+        }
+
+        switch (surfaceElo, stats.eloRank) {
+        case (.some(let surfaceElo), .some(let totalElo)):
+            return "\(surfaceElo)/\(totalElo)"
+        case (.some(let surfaceElo), .none):
+            return "\(surfaceElo)/-"
+        case (.none, .some(let totalElo)):
+            return "-/\(totalElo)"
         case (.none, .none):
             return "-"
         }
@@ -1170,89 +1159,6 @@ struct FormDots: View {
     }
 }
 
-struct MatchSignalsPanel: View {
-    let title: String
-    let signals: [MatchSignal]
-    let emptyText: String
-    let isPositive: Bool
-
-    private var displayedSignals: [MatchSignal] {
-        Array(signals.prefix(4))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            FieldLabel(title)
-
-            VStack(spacing: 0) {
-                if displayedSignals.isEmpty {
-                    Text(emptyText)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(AppColors.caption)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .frame(height: 44)
-                        .background(AppColors.panelBackground.opacity(0.22))
-                } else {
-                    ForEach(displayedSignals) { signal in
-                        MatchSignalRow(signal: signal, isPositive: isPositive)
-                    }
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
-            }
-        }
-    }
-}
-
-struct MatchSignalRow: View {
-    let signal: MatchSignal
-    let isPositive: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(isPositive ? "▲" : "▼")
-                .font(.system(size: 11, weight: .black, design: .monospaced))
-                .foregroundStyle(isPositive ? AppColors.primaryStrong : AppColors.danger)
-                .frame(width: 14)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(signal.winnerName) - \(signal.loserName)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppColors.heading)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Text("\(signal.date) · \(signal.tournament)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(AppColors.badgeText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            Spacer(minLength: 12)
-
-            Text(signal.score?.nonEmpty ?? "-")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(AppColors.badgeText)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 160, alignment: .trailing)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 52)
-        .background(AppColors.panelBackground.opacity(0.22))
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppColors.panelBorder.opacity(0.72))
-                .frame(height: 1)
-        }
-    }
-}
-
 struct HeadToHeadPanel: View {
     let match: OddsetMatch
     let dashboard: MatchDashboard?
@@ -1294,6 +1200,7 @@ struct HeadToHeadPanel: View {
 
 struct HeadToHeadMatchesPanel: View {
     let dashboard: MatchDashboard?
+    let isLoading: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1306,6 +1213,8 @@ struct HeadToHeadMatchesPanel: View {
                     ForEach(matches) { match in
                         HeadToHeadMatchRow(match: match)
                     }
+                } else if isLoading {
+                    LoadingRow(text: "Läser tidigare möten...")
                 } else {
                     Text("Inga tidigare möten i databasen.")
                         .font(.system(size: 12, weight: .semibold))
@@ -1400,6 +1309,7 @@ private struct HeadToHeadMatchRow: View {
 struct RankingHistoryPanel: View {
     let match: OddsetMatch
     let dashboard: MatchDashboard?
+    let isLoading: Bool
     @State private var selectedRange: RankingHistoryRange = .twoYears
 
     var body: some View {
@@ -1420,6 +1330,8 @@ struct RankingHistoryPanel: View {
                         playerB: filteredHistory(dashboard?.rankingHistoryB ?? [])
                     )
                     .frame(height: 170)
+                } else if isLoading {
+                    LoadingBlock(text: "Läser rankinghistorik...")
                 } else {
                     Text("Ingen rankinghistorik för matchen i ATP-databasen.")
                         .font(.system(size: 13, weight: .semibold))
@@ -2453,6 +2365,39 @@ struct EmptyState: View {
         }
         .foregroundStyle(AppColors.badgeText)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct LoadingRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundStyle(AppColors.caption)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(AppColors.panelBackground.opacity(0.22))
+    }
+}
+
+struct LoadingBlock: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(text)
+                .font(.system(size: 13, weight: .semibold))
+        }
+        .foregroundStyle(AppColors.badgeText)
+        .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
     }
 }
 
