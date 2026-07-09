@@ -135,6 +135,18 @@ final class MatchPointStore: ObservableObject {
         }
     }
 
+    func focus(player: RankedPlayer) {
+        if !playerSearchResults.contains(where: { $0.player == player.player }) {
+            playerSearchResults.insert(player, at: 0)
+        }
+
+        selectedPlayerID = player.player
+        selectedPlayerProfile = nil
+        Task {
+            await loadSelectedPlayerProfile()
+        }
+    }
+
     func setComparePlayer(_ player: RankedPlayer, slot: ComparisonSlot) {
         switch slot {
         case .playerA:
@@ -142,6 +154,15 @@ final class MatchPointStore: ObservableObject {
         case .playerB:
             comparePlayerB = player
         }
+
+        Task {
+            await loadPlayerComparison()
+        }
+    }
+
+    func setComparePlayers(playerA: RankedPlayer, playerB: RankedPlayer) {
+        comparePlayerA = playerA
+        comparePlayerB = playerB
 
         Task {
             await loadPlayerComparison()

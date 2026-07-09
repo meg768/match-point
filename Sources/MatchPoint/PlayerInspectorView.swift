@@ -270,61 +270,70 @@ private struct PlayerInspectorPage: Identifiable, Equatable {
     }
 }
 
-private struct PlayerInspectorOverviewSection: View {
+struct PlayerInspectorOverviewSection: View {
+    let stats: PlayerDashboardStats?
+    let surface: TennisSurface
+
+    var body: some View {
+        PlayerInspectorSection(title: "Översikt") {
+            PlayerInspectorOverviewGrid(stats: stats, surface: surface)
+        }
+    }
+}
+
+struct PlayerInspectorOverviewGrid: View {
     let stats: PlayerDashboardStats?
     let surface: TennisSurface
     private let avatarWidth: CGFloat = 150
     private let rowHeight: CGFloat = 62
 
     var body: some View {
-        PlayerInspectorSection(title: "Översikt") {
-            GeometryReader { proxy in
-                let columnWidth = max(136, (proxy.size.width - avatarWidth) / 7)
-                ScrollView(.horizontal) {
-                    HStack(spacing: 0) {
-                        PlayerInspectorAvatarCell(stats: stats)
-                            .frame(width: avatarWidth)
-                            .frame(height: rowHeight * 3)
+        GeometryReader { proxy in
+            let columnWidth = max(136, (proxy.size.width - avatarWidth) / 7)
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    PlayerInspectorAvatarCell(stats: stats)
+                        .frame(width: avatarWidth)
+                        .frame(height: rowHeight * 3)
 
-                        VStack(spacing: 0) {
-                            HStack(spacing: 0) {
-                                summaryCell("Ålder", stats?.age.map(String.init) ?? "-", width: columnWidth)
-                                summaryCell("Längd/vikt/BMI", physicalValue, width: columnWidth)
-                                summaryCell("ELO", stats?.eloRank.map(String.init) ?? "-", width: columnWidth)
-                                summaryCell("Hard/Clay/Grass", surfaceEloValue, width: columnWidth)
-                                summaryCell("Serve", rating(stats?.serveRating), width: columnWidth)
-                                summaryCell("Retur", rating(stats?.returnRating), width: columnWidth)
-                                summaryCell("Underläge", rating(stats?.pressureRating), width: columnWidth)
-                            }
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            summaryCell("Ålder", stats?.age.map(String.init) ?? "-", width: columnWidth)
+                            summaryCell("Längd/vikt/BMI", physicalValue, width: columnWidth)
+                            summaryCell("ELO", stats?.eloRank.map(String.init) ?? "-", width: columnWidth)
+                            summaryCell("Hard/Clay/Grass", surfaceEloValue, width: columnWidth)
+                            summaryCell("Serve", rating(stats?.serveRating), width: columnWidth)
+                            summaryCell("Retur", rating(stats?.returnRating), width: columnWidth)
+                            summaryCell("Underläge", rating(stats?.pressureRating), width: columnWidth)
+                        }
 
-                            HStack(spacing: 0) {
-                                summaryCell("YTD", currentYear, width: columnWidth)
-                                summaryCell("Ranking", stats?.rank.map(String.init) ?? "-", width: columnWidth)
-                                summaryCell("Titlar", stats?.ytdTitles.map(String.init) ?? "-", width: columnWidth)
-                                summaryCell("Vinster", recordWithPercent(wins: stats?.ytdWins, losses: stats?.ytdLosses), width: columnWidth)
-                                summaryCell("Förluster", lossesWithPercent(wins: stats?.ytdWins, losses: stats?.ytdLosses), width: columnWidth)
-                                summaryCell("Matcher", ytdMatches, width: columnWidth)
-                                summaryCell("Prispengar", money(stats?.ytdPrize), width: columnWidth)
-                            }
+                        HStack(spacing: 0) {
+                            summaryCell("YTD", currentYear, width: columnWidth)
+                            summaryCell("Ranking", stats?.rank.map(String.init) ?? "-", width: columnWidth)
+                            summaryCell("Titlar", stats?.ytdTitles.map(String.init) ?? "-", width: columnWidth)
+                            summaryCell("Vinster", recordWithPercent(wins: stats?.ytdWins, losses: stats?.ytdLosses), width: columnWidth)
+                            summaryCell("Förluster", lossesWithPercent(wins: stats?.ytdWins, losses: stats?.ytdLosses), width: columnWidth)
+                            summaryCell("Matcher", ytdMatches, width: columnWidth)
+                            summaryCell("Prispengar", money(stats?.ytdPrize), width: columnWidth)
+                        }
 
-                            HStack(spacing: 0) {
-                                summaryCell("Karriär", careerYears, width: columnWidth)
-                                summaryCell("Ranking", highestRankValue, width: columnWidth)
-                                summaryCell("Titlar", stats?.careerTitles.map(String.init) ?? "-", width: columnWidth)
-                                summaryCell("Vinster", recordWithPercent(wins: stats?.totalWins, losses: stats?.totalLosses), width: columnWidth)
-                                summaryCell("Förluster", lossesWithPercent(wins: stats?.totalWins, losses: stats?.totalLosses), width: columnWidth)
-                                summaryCell("Matcher", stats.map { String($0.totalMatches) } ?? "-", width: columnWidth)
-                                summaryCell("Prispengar", money(stats?.careerPrize), width: columnWidth)
-                            }
+                        HStack(spacing: 0) {
+                            summaryCell("Karriär", careerYears, width: columnWidth)
+                            summaryCell("Ranking", highestRankValue, width: columnWidth)
+                            summaryCell("Titlar", stats?.careerTitles.map(String.init) ?? "-", width: columnWidth)
+                            summaryCell("Vinster", recordWithPercent(wins: stats?.totalWins, losses: stats?.totalLosses), width: columnWidth)
+                            summaryCell("Förluster", lossesWithPercent(wins: stats?.totalWins, losses: stats?.totalLosses), width: columnWidth)
+                            summaryCell("Matcher", stats.map { String($0.totalMatches) } ?? "-", width: columnWidth)
+                            summaryCell("Prispengar", money(stats?.careerPrize), width: columnWidth)
                         }
                     }
-                    .frame(width: avatarWidth + (columnWidth * 7), alignment: .leading)
                 }
-                .scrollIndicators(.visible)
+                .frame(width: avatarWidth + (columnWidth * 7), alignment: .leading)
             }
-            .frame(height: rowHeight * 3)
-            .background(AppColors.panelBackground.opacity(0.22))
+            .scrollIndicators(.visible)
         }
+        .frame(height: rowHeight * 3)
+        .background(AppColors.panelBackground.opacity(0.22))
     }
 
     private func summaryCell(_ label: String, _ value: String, width: CGFloat) -> some View {
@@ -422,7 +431,7 @@ private struct PlayerInspectorOverviewSection: View {
     }
 }
 
-private struct PlayerInspectorAvatarCell: View {
+struct PlayerInspectorAvatarCell: View {
     let stats: PlayerDashboardStats?
 
     var body: some View {
@@ -444,7 +453,7 @@ private struct PlayerInspectorAvatarCell: View {
     }
 }
 
-private struct PlayerInspectorTitlesSection: View {
+struct PlayerInspectorTitlesSection: View {
     let stats: PlayerDashboardStats?
 
     var body: some View {
@@ -459,7 +468,7 @@ private struct PlayerInspectorTitlesSection: View {
     }
 }
 
-private struct PlayerInspectorRankingSection: View {
+struct PlayerInspectorRankingSection: View {
     let history: [RankingHistoryPoint]
     let isLoading: Bool
     let hasLoaded: Bool
@@ -498,7 +507,7 @@ private struct PlayerInspectorRankingSection: View {
     }
 }
 
-private struct PlayerInspectorMatchesSection: View {
+struct PlayerInspectorMatchesSection: View {
     let tabs: [PlayerMatchTab]
     let isLoading: Bool
     let hasLoaded: Bool
@@ -602,7 +611,7 @@ private struct PlayerInspectorMatchesSection: View {
     }
 }
 
-private struct PlayerInspectorSection<Content: View>: View {
+struct PlayerInspectorSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
@@ -619,7 +628,7 @@ private struct PlayerInspectorSection<Content: View>: View {
     }
 }
 
-private struct PlayerInspectorGrid<Content: View>: View {
+struct PlayerInspectorGrid<Content: View>: View {
     private let columns = [
         GridItem(.flexible(), spacing: 0),
         GridItem(.flexible(), spacing: 0),
@@ -635,7 +644,7 @@ private struct PlayerInspectorGrid<Content: View>: View {
     }
 }
 
-private struct PlayerInspectorMatchTabButton: View {
+struct PlayerInspectorMatchTabButton: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
@@ -648,7 +657,7 @@ private struct PlayerInspectorMatchTabButton: View {
     }
 }
 
-private struct PlayerInspectorMatchesHeader: View {
+struct PlayerInspectorMatchesHeader: View {
     let sortKey: PlayerInspectorMatchSortKey
     let sortAscending: Bool
     let onSort: (PlayerInspectorMatchSortKey) -> Void
@@ -698,7 +707,7 @@ private struct PlayerInspectorMatchesHeader: View {
     }
 }
 
-private struct PlayerInspectorMatchRow: View {
+struct PlayerInspectorMatchRow: View {
     let match: TennisMatch
     let onSelectPlayer: (MatchPlayer) -> Void
 
@@ -708,8 +717,8 @@ private struct PlayerInspectorMatchRow: View {
             cell(tournamentTitle, alignment: .leading)
             cell(match.surface ?? "-", width: 76, alignment: .leading)
             cell(match.round ?? "-", width: 56, alignment: .leading)
-            playerCell(match.playerA, alignment: .leading)
-            playerCell(match.playerB, alignment: .leading)
+            PlayerInspectorMatchPlayerCell(player: match.playerA, alignment: .leading, onSelectPlayer: onSelectPlayer)
+            PlayerInspectorMatchPlayerCell(player: match.playerB, alignment: .leading, onSelectPlayer: onSelectPlayer)
             cell(match.displayScore, width: 112, alignment: .trailing)
             cell(match.duration?.nonEmpty ?? "-", width: 72, alignment: .trailing)
         }
@@ -731,28 +740,6 @@ private struct PlayerInspectorMatchRow: View {
         return "\(match.tournament) (\(eventType))"
     }
 
-    private func playerTitle(_ player: MatchPlayer) -> String {
-        if let rank = player.rank {
-            return "\(player.name) (\(rank))"
-        }
-
-        return player.name
-    }
-
-    private func playerCell(_ player: MatchPlayer, alignment: Alignment) -> some View {
-        Button {
-            onSelectPlayer(player)
-        } label: {
-            Text(playerTitle(player))
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(AppColors.primaryStrong)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: alignment)
-        }
-        .buttonStyle(.plain)
-    }
-
     private func cell(_ text: String, width: CGFloat? = nil, alignment: Alignment) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .regular))
@@ -764,7 +751,37 @@ private struct PlayerInspectorMatchRow: View {
     }
 }
 
-private enum PlayerInspectorMatchSortKey {
+struct PlayerInspectorMatchPlayerCell: View {
+    let player: MatchPlayer
+    let alignment: Alignment
+    let onSelectPlayer: (MatchPlayer) -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            onSelectPlayer(player)
+        } label: {
+            Text(playerTitle)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(isHovering ? AppColors.playerLinkHover : AppColors.primaryStrong)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: alignment)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+
+    private var playerTitle: String {
+        if let rank = player.rank {
+            return "\(player.name) (\(rank))"
+        }
+
+        return player.name
+    }
+}
+
+enum PlayerInspectorMatchSortKey {
     case date
     case tournament
     case surface
@@ -841,7 +858,7 @@ private enum PlayerInspectorMatchSortKey {
     }
 }
 
-private struct PlayerInspectorTableMessage: View {
+struct PlayerInspectorTableMessage: View {
     let text: String
 
     var body: some View {
@@ -855,7 +872,7 @@ private struct PlayerInspectorTableMessage: View {
     }
 }
 
-private struct PlayerInspectorEmptyBlock: View {
+struct PlayerInspectorEmptyBlock: View {
     let text: String
 
     var body: some View {
@@ -867,7 +884,7 @@ private struct PlayerInspectorEmptyBlock: View {
     }
 }
 
-private struct PlayerInspectorRankingChart: View {
+struct PlayerInspectorRankingChart: View {
     let points: [RankingHistoryPoint]
 
     private let leftInset: CGFloat = 42

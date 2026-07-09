@@ -10,12 +10,13 @@ struct ContentView: View {
     @State private var matchPanelWidths = SettingsStore.loadMatchPanelWidths()
     @State private var matchFilter: MatchListFilter = .all
     @State private var isShowingSettings = false
-    @State private var inspectedPlayer: PlayerInspectorContext?
+    @State private var navigationHistory: [WorkspaceNavigationEntry] = [.mode(.matches)]
+    @State private var navigationIndex = 0
     private let liveRefreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
-            ModePillBar(mode: $mode)
+            ModePillBar(mode: mode, onSelect: navigate)
 
             MatchPointSplitView(
                 mode: $mode,
@@ -40,11 +41,13 @@ struct ContentView: View {
                 matchPanelWidth: matchPanelWidthBinding,
                 onFilterChange: { matchFilter = $0 },
                 onSelect: store.select(oddsetMatch:),
-                onSelectPlayerResult: store.select(player:),
+                onSelectPlayerResult: selectPlayerResult,
                 onSetComparePlayer: store.setComparePlayer(_:slot:),
                 onClearComparePlayer: store.clearComparePlayer(_:),
                 onSwapComparePlayers: store.swapComparePlayers,
-                onInspectPlayer: { inspectedPlayer = $0 }
+                onOpenPlayerContext: openPlayer,
+                onOpenMatchPlayer: openPlayer,
+                onCompareMatchPlayers: comparePlayers
             )
             .padding([.horizontal, .top], 8)
             .padding(.bottom, 8)
@@ -58,6 +61,20 @@ struct ContentView: View {
         .searchable(text: $searchText, placement: .toolbar, prompt: mode.searchPrompt)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    goBack()
+                } label: {
+                    Label("Tillbaka", systemImage: "chevron.left")
+                }
+                .disabled(!canGoBack)
+
+                Button {
+                    goForward()
+                } label: {
+                    Label("Framåt", systemImage: "chevron.right")
+                }
+                .disabled(!canGoForward)
+
                 Button {
                     isShowingSettings = true
                 } label: {
@@ -83,11 +100,6 @@ struct ContentView: View {
                 }
             )
         }
-        .sheet(item: $inspectedPlayer) { context in
-            PlayerInspectorView(context: context)
-                .environmentObject(appearance)
-                .preferredColorScheme(appearance.preferredColorScheme)
-        }
         .onAppear {
             store.refresh()
             store.searchPlayers(query: "")
@@ -101,7 +113,7 @@ struct ContentView: View {
                 return
             }
 
-            mode = selectedMode
+            navigate(to: selectedMode)
         }
         .onReceive(liveRefreshTimer) { _ in
             store.refresh()
@@ -193,16 +205,119 @@ struct ContentView: View {
             }
         )
     }
+
+    private var canGoBack: Bool {
+        navigationIndex > 0
+    }
+
+    private var canGoForward: Bool {
+        navigationIndex < navigationHistory.count - 1
+    }
+
+    private func navigate(to selectedMode: MatchPointMode) {
+        apply(.mode(selectedMode), recordHistory: true)
+    }
+
+    private func selectPlayerResult(_ player: RankedPlayer) {
+        apply(.player(player), recordHistory: true)
+    }
+
+    private func goBack() {
+        guard canGoBack else {
+            return
+        }
+
+        navigationIndex -= 1
+        apply(navigationHistory[navigationIndex], recordHistory: false)
+    }
+
+    private func goForward() {
+        guard canGoForward else {
+            return
+        }
+
+        navigationIndex += 1
+        apply(navigationHistory[navigationIndex], recordHistory: false)
+    }
+
+    private func apply(_ entry: WorkspaceNavigationEntry, recordHistory: Bool) {
+        switch entry {
+        case .mode(let selectedMode):
+            mode = selectedMode
+        case .player(let player):
+            mode = .players
+            store.focus(player: player)
+        }
+
+        if recordHistory {
+            pushNavigation(entry)
+        }
+    }
+
+    private func pushNavigation(_ entry: WorkspaceNavigationEntry) {
+        if navigationHistory.indices.contains(navigationIndex), navigationHistory[navigationIndex] == entry {
+            return
+        }
+
+        if navigationIndex < navigationHistory.count - 1 {
+            navigationHistory.removeSubrange((navigationIndex + 1)..<navigationHistory.count)
+        }
+
+        navigationHistory.append(entry)
+        navigationIndex = navigationHistory.count - 1
+    }
+
+    private func openPlayer(_ context: PlayerInspectorContext) {
+        let stats = context.stats
+        let player = RankedPlayer(
+            player: context.playerID,
+            name: stats?.name ?? context.displayName,
+            country: stats?.country ?? context.displayCountry,
+            rank: stats?.rank ?? context.rank ?? 9999,
+            points: stats?.points,
+            eloRank: stats?.eloRank,
+            hardElo: stats?.hardElo,
+            clayElo: stats?.clayElo,
+            grassElo: stats?.grassElo
+        )
+        openPlayer(player)
+    }
+
+    private func openPlayer(_ player: MatchPlayer) {
+        let rankedPlayer = RankedPlayer(
+            player: player.id ?? player.name,
+            name: player.name,
+            country: player.country,
+            rank: player.rank ?? 9999,
+            points: nil,
+            eloRank: nil,
+            hardElo: nil,
+            clayElo: nil,
+            grassElo: nil
+        )
+        openPlayer(rankedPlayer)
+    }
+
+    private func openPlayer(_ player: RankedPlayer) {
+        searchText = player.name
+        apply(.player(player), recordHistory: true)
+    }
+
+    private func comparePlayers(_ playerA: RankedPlayer, _ playerB: RankedPlayer) {
+        store.setComparePlayers(playerA: playerA, playerB: playerB)
+        apply(.mode(.compare), recordHistory: true)
+    }
 }
 
 struct ModePillBar: View {
-    @Binding var mode: MatchPointMode
+    let mode: MatchPointMode
+    let onSelect: (MatchPointMode) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            ModePillButton(item: .matches, mode: $mode)
-            ModePillButton(item: .players, mode: $mode)
-            ModePillButton(item: .compare, mode: $mode)
+            ModePillButton(item: .matches, selectedMode: mode, onSelect: onSelect)
+            ModePillButton(item: .players, selectedMode: mode, onSelect: onSelect)
+            ModePillButton(item: .compare, selectedMode: mode, onSelect: onSelect)
 
             Spacer(minLength: 0)
         }
@@ -240,13 +355,14 @@ struct WindowTitleHider: NSViewRepresentable {
 
 struct ModePillButton: View {
     let item: MatchPointMode
-    @Binding var mode: MatchPointMode
+    let selectedMode: MatchPointMode
+    let onSelect: (MatchPointMode) -> Void
 
     var body: some View {
-        let isSelected = mode == item
+        let isSelected = selectedMode == item
 
         Button {
-            mode = item
+            onSelect(item)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: item.systemImage)
@@ -271,6 +387,11 @@ struct ModePillButton: View {
         .buttonStyle(.plain)
         .help(item.title)
     }
+}
+
+enum WorkspaceNavigationEntry: Equatable {
+    case mode(MatchPointMode)
+    case player(RankedPlayer)
 }
 
 enum MatchPointMode: String, CaseIterable, Identifiable {
@@ -357,7 +478,9 @@ struct MatchPointSplitView: View {
     let onSetComparePlayer: (RankedPlayer, ComparisonSlot) -> Void
     let onClearComparePlayer: (ComparisonSlot) -> Void
     let onSwapComparePlayers: () -> Void
-    let onInspectPlayer: (PlayerInspectorContext) -> Void
+    let onOpenPlayerContext: (PlayerInspectorContext) -> Void
+    let onOpenMatchPlayer: (MatchPlayer) -> Void
+    let onCompareMatchPlayers: (RankedPlayer, RankedPlayer) -> Void
 
     private let dividerWidth: CGFloat = 14
     private let minListWidth: CGFloat = 280
@@ -413,21 +536,24 @@ struct MatchPointSplitView: View {
                             dashboard: dashboard,
                             isLoading: isLoadingDashboard,
                             selectedSurface: selectedSurface,
-                            onInspectPlayer: onInspectPlayer
+                            onInspectPlayer: onOpenPlayerContext,
+                            onComparePlayers: onCompareMatchPlayers
                         )
                     } else if mode == .players {
                         PlayerWorkspacePanel(
                             player: selectedPlayer,
                             profile: playerProfile,
                             isLoading: isLoadingPlayerProfile,
-                            surface: selectedSurface
+                            surface: selectedSurface,
+                            onSelectPlayer: onOpenMatchPlayer
                         )
                     } else if mode == .compare {
                         PlayerComparisonPanel(
                             playerA: comparePlayerA,
                             playerB: comparePlayerB,
                             comparison: comparison,
-                            isLoading: isLoadingComparison
+                            isLoading: isLoadingComparison,
+                            surface: selectedSurface
                         )
                     } else {
                         DataLogPanel(entries: dataLog)
@@ -1488,6 +1614,7 @@ struct DashboardPanel: View {
     let isLoading: Bool
     let selectedSurface: TennisSurface
     let onInspectPlayer: (PlayerInspectorContext) -> Void
+    let onComparePlayers: (RankedPlayer, RankedPlayer) -> Void
 
     var body: some View {
         ScrollView(.vertical) {
@@ -1495,8 +1622,14 @@ struct DashboardPanel: View {
                 FieldLabel("Matchöversikt")
 
                 if let match {
-                    MatchOverviewPanel(match: match, dashboard: dashboard, isLoading: isLoading, selectedSurface: selectedSurface, onInspectPlayer: onInspectPlayer)
-                    RankingHistoryPanel(match: match, dashboard: dashboard, isLoading: isLoading)
+                    MatchOverviewPanel(
+                        match: match,
+                        dashboard: dashboard,
+                        isLoading: isLoading,
+                        selectedSurface: selectedSurface,
+                        onInspectPlayer: onInspectPlayer,
+                        onComparePlayers: onComparePlayers
+                    )
                 } else {
                     EmptyState(text: "Ingen live eller kommande match vald.", systemImage: "tennisball")
                 }
@@ -1515,7 +1648,7 @@ struct PlayerWorkspacePanel: View {
     let profile: PlayerWorkspaceProfile?
     let isLoading: Bool
     let surface: TennisSurface
-    @State private var selectedRange: RankingHistoryRange = .twoYears
+    let onSelectPlayer: (MatchPlayer) -> Void
 
     var body: some View {
         ScrollView(.vertical) {
@@ -1523,18 +1656,21 @@ struct PlayerWorkspacePanel: View {
                 FieldLabel("Spelaröversikt")
 
                 if let player {
-                    PlayerWorkspaceHeader(player: player, stats: profile?.stats)
-                    PlayerWorkspaceProfileGrid(stats: profile?.stats, surface: surface)
-                    PlayerWorkspaceTitles(stats: profile?.stats)
-                    PlayerWorkspaceRanking(
-                        name: profile?.stats?.name ?? player.name,
-                        history: filteredHistory(profile?.rankingHistory ?? []),
-                        selectedRange: $selectedRange,
-                        isLoading: isLoading
+                    let stats = profile?.stats ?? fallbackStats(for: player)
+
+                    PlayerWorkspaceInlineHeader(player: player, stats: stats)
+                    PlayerInspectorOverviewSection(stats: stats, surface: surface)
+                    PlayerInspectorTitlesSection(stats: stats)
+                    PlayerInspectorRankingSection(
+                        history: profile?.rankingHistory ?? [],
+                        isLoading: isLoading,
+                        hasLoaded: hasLoadedProfile
                     )
-                    PlayerWorkspaceMatches(
+                    PlayerInspectorMatchesSection(
                         tabs: profile?.matchTabs ?? [],
-                        isLoading: isLoading
+                        isLoading: isLoading,
+                        hasLoaded: hasLoadedProfile,
+                        onSelectPlayer: onSelectPlayer
                     )
                 } else {
                     EmptyState(text: "Sök eller välj en spelare.", systemImage: "person.crop.circle")
@@ -1548,12 +1684,55 @@ struct PlayerWorkspacePanel: View {
         .background(AppColors.panelBackground)
     }
 
-    private func filteredHistory(_ history: [RankingHistoryPoint]) -> [RankingHistoryPoint] {
-        guard let cutoff = selectedRange.cutoffMonth else {
-            return history
-        }
+    private var hasLoadedProfile: Bool {
+        profile != nil || !isLoading
+    }
 
-        return history.filter { $0.month >= cutoff }
+    private func fallbackStats(for player: RankedPlayer) -> PlayerDashboardStats {
+        PlayerDashboardStats(
+            id: player.player,
+            name: player.name,
+            country: player.country,
+            age: nil,
+            pro: nil,
+            height: nil,
+            weight: nil,
+            rank: player.rank,
+            points: player.points,
+            highestRank: nil,
+            highestRankDate: nil,
+            careerTitles: nil,
+            grandSlamTitles: 0,
+            mastersTitles: 0,
+            atp500Titles: 0,
+            atp250Titles: 0,
+            careerPrize: nil,
+            ytdWins: nil,
+            ytdLosses: nil,
+            ytdTitles: nil,
+            ytdPrize: nil,
+            serveRating: nil,
+            returnRating: nil,
+            pressureRating: nil,
+            eloRank: player.eloRank,
+            hardElo: player.hardElo,
+            clayElo: player.clayElo,
+            grassElo: player.grassElo,
+            totalMatches: 0,
+            totalWins: 0,
+            formMatches: 0,
+            formWins: 0,
+            recentMatches: 0,
+            recentWins: 0,
+            surfaceMatches: 0,
+            surfaceWins: 0,
+            hardMatches: 0,
+            hardWins: 0,
+            clayMatches: 0,
+            clayWins: 0,
+            grassMatches: 0,
+            grassWins: 0
+        )
     }
 }
 
@@ -1562,6 +1741,7 @@ struct PlayerComparisonPanel: View {
     let playerB: RankedPlayer?
     let comparison: PlayerComparison?
     let isLoading: Bool
+    let surface: TennisSurface
     @State private var selectedRange: RankingHistoryRange = .twoYears
 
     var body: some View {
@@ -1569,12 +1749,13 @@ struct PlayerComparisonPanel: View {
             VStack(alignment: .leading, spacing: 16) {
                 FieldLabel("Jämförelse")
 
-                if let playerA, let playerB {
-                    ComparisonHero(playerA: playerA, playerB: playerB, comparison: comparison)
-                    ComparisonProfileGrid(comparison: comparison, fallbackA: playerA, fallbackB: playerB)
+                if playerA != nil && playerB != nil {
+                    ComparisonTitleBar(playerAName: playerAStats.name, playerBName: playerBStats.name)
+                    ComparisonPlayerProfileBlock(stats: playerAStats, surface: surface)
+                    ComparisonPlayerProfileBlock(stats: playerBStats, surface: surface)
                     ComparisonRankingPanel(
-                        playerAName: comparison?.playerA?.name ?? playerA.name,
-                        playerBName: comparison?.playerB?.name ?? playerB.name,
+                        playerAName: playerAStats.name,
+                        playerBName: playerBStats.name,
                         rankingHistoryA: filteredHistory(comparison?.rankingHistoryA ?? []),
                         rankingHistoryB: filteredHistory(comparison?.rankingHistoryB ?? []),
                         selectedRange: $selectedRange,
@@ -1600,61 +1781,147 @@ struct PlayerComparisonPanel: View {
 
         return history.filter { $0.month >= cutoff }
     }
+
+    private var playerAStats: PlayerDashboardStats {
+        comparison?.playerA ?? fallbackStats(for: playerA)
+    }
+
+    private var playerBStats: PlayerDashboardStats {
+        comparison?.playerB ?? fallbackStats(for: playerB)
+    }
+
+    private func fallbackStats(for player: RankedPlayer?) -> PlayerDashboardStats {
+        PlayerDashboardStats(
+            id: player?.player ?? "",
+            name: player?.name ?? "-",
+            country: player?.country,
+            age: nil,
+            pro: nil,
+            height: nil,
+            weight: nil,
+            rank: player?.rank,
+            points: player?.points,
+            highestRank: nil,
+            highestRankDate: nil,
+            careerTitles: nil,
+            grandSlamTitles: 0,
+            mastersTitles: 0,
+            atp500Titles: 0,
+            atp250Titles: 0,
+            careerPrize: nil,
+            ytdWins: nil,
+            ytdLosses: nil,
+            ytdTitles: nil,
+            ytdPrize: nil,
+            serveRating: nil,
+            returnRating: nil,
+            pressureRating: nil,
+            eloRank: player?.eloRank,
+            hardElo: player?.hardElo,
+            clayElo: player?.clayElo,
+            grassElo: player?.grassElo,
+            totalMatches: 0,
+            totalWins: 0,
+            formMatches: 0,
+            formWins: 0,
+            recentMatches: 0,
+            recentWins: 0,
+            surfaceMatches: 0,
+            surfaceWins: 0,
+            hardMatches: 0,
+            hardWins: 0,
+            clayMatches: 0,
+            clayWins: 0,
+            grassMatches: 0,
+            grassWins: 0
+        )
+    }
 }
 
-struct ComparisonHero: View {
-    let playerA: RankedPlayer
-    let playerB: RankedPlayer
-    let comparison: PlayerComparison?
+struct PlayerWorkspaceInlineHeader: View {
+    let player: RankedPlayer
+    let stats: PlayerDashboardStats?
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                heroPlayer(name: comparison?.playerA?.name ?? playerA.name, country: comparison?.playerA?.country ?? playerA.country, alignment: .leading)
-                Text("\(comparison?.headToHeadWinsA ?? 0) - \(comparison?.headToHeadWinsB ?? 0)")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(AppColors.primaryStrong)
-                    .frame(width: 110)
-                heroPlayer(name: comparison?.playerB?.name ?? playerB.name, country: comparison?.playerB?.country ?? playerB.country, alignment: .trailing)
-            }
+        HStack(alignment: .center, spacing: 10) {
+            CountryBadge(country: stats?.country ?? player.country)
+                .frame(width: 34, height: 34)
 
-            ComparisonBar(
-                left: Double(comparison?.headToHeadWinsA ?? 0),
-                right: Double(comparison?.headToHeadWinsB ?? 0)
-            )
+            Text(headerTitle)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(AppColors.heading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+
+            Spacer(minLength: 0)
         }
-        .padding(14)
-        .background(AppColors.tableRowBackground)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(AppColors.tableRowBackground.opacity(0.58))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
+                .stroke(AppColors.panelBorder.opacity(0.85), lineWidth: 1)
         }
     }
 
-    private func heroPlayer(name: String, country: String?, alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 6) {
-            Text(name)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(AppColors.heading)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+    private var headerTitle: String {
+        let name = stats?.name ?? player.name
+        let country = (stats?.country ?? player.country).map { ", \($0)" } ?? ""
+        return "\(name)\(country)"
+    }
+}
 
-            HStack(spacing: 6) {
-                if alignment == .trailing {
-                    Spacer(minLength: 0)
-                }
-                CountryBadge(country: country)
-                    .frame(width: 18, height: 18)
-                Text(country ?? "-")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(AppColors.badgeText)
-                if alignment == .leading {
-                    Spacer(minLength: 0)
-                }
+struct ComparisonTitleBar: View {
+    let playerAName: String
+    let playerBName: String
+
+    var body: some View {
+        Text("\(playerAName) vs \(playerBName)")
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(AppColors.heading)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(AppColors.tableRowBackground.opacity(0.58))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(AppColors.panelBorder.opacity(0.85), lineWidth: 1)
             }
+    }
+}
+
+struct ComparisonPlayerProfileBlock: View {
+    let stats: PlayerDashboardStats
+    let surface: TennisSurface
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                CountryBadge(country: stats.country)
+                    .frame(width: 24, height: 24)
+
+                Text(headerTitle)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(AppColors.heading)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 2)
+
+            PlayerInspectorOverviewGrid(stats: stats, surface: surface)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
+                }
         }
-        .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private var headerTitle: String {
+        let country = stats.country.map { ", \($0)" } ?? ""
+        return "\(stats.name)\(country)"
     }
 }
 
@@ -2102,6 +2369,7 @@ struct MatchOverviewPanel: View {
     let isLoading: Bool
     let selectedSurface: TennisSurface
     let onInspectPlayer: (PlayerInspectorContext) -> Void
+    let onComparePlayers: (RankedPlayer, RankedPlayer) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -2115,15 +2383,51 @@ struct MatchOverviewPanel: View {
                 Text(match.startTitle)
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(AppColors.badgeText)
+                Button {
+                    onComparePlayers(comparePlayerA, comparePlayerB)
+                } label: {
+                    Label("Jämför spelarna", systemImage: "arrow.left.arrow.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppColors.primaryStrong)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(AppColors.badgeBackground)
+                .clipShape(Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(AppColors.primary.opacity(0.65), lineWidth: 1)
+                }
             }
 
             EqualPlayerColumns(match: match, dashboard: dashboard, selectedSurface: selectedSurface, onInspectPlayer: onInspectPlayer)
             MatchOddsColumns(match: match, dashboard: dashboard)
-            PlayerTitleColumns(dashboard: dashboard)
-            PlayerProfileGridPreview(dashboard: dashboard)
-            HeadToHeadMatchesPanel(dashboard: dashboard, isLoading: isLoading)
         }
         .padding(.bottom, 2)
+    }
+
+    private var comparePlayerA: RankedPlayer {
+        rankedPlayer(from: match.playerA, stats: dashboard?.playerA)
+    }
+
+    private var comparePlayerB: RankedPlayer {
+        rankedPlayer(from: match.playerB, stats: dashboard?.playerB)
+    }
+
+    private func rankedPlayer(from player: MatchPlayer, stats: PlayerDashboardStats?) -> RankedPlayer {
+        RankedPlayer(
+            player: stats?.id ?? player.id ?? player.name,
+            name: stats?.name ?? player.name,
+            country: stats?.country ?? player.country,
+            rank: stats?.rank ?? player.rank ?? 9999,
+            points: stats?.points,
+            eloRank: stats?.eloRank,
+            hardElo: stats?.hardElo,
+            clayElo: stats?.clayElo,
+            grassElo: stats?.grassElo
+        )
     }
 }
 
@@ -4636,6 +4940,7 @@ enum AppColors {
     static let topicName = adaptive(light: nsColor(0.36, 0.38, 0.42), dark: nsColor(0.80, 0.84, 0.82))
     static let treeMuted = adaptive(light: nsColor(0.76, 0.80, 0.86), dark: nsColor(0.40, 0.46, 0.43))
     static let badgeText = adaptive(light: nsColor(0.35, 0.38, 0.46), dark: nsColor(0.72, 0.78, 0.75))
+    static let playerLinkHover = adaptive(light: nsColor(0.00, 0.20, 0.36), dark: nsColor(0.54, 0.80, 1.00))
     static var primary: Color { theme.primary }
     static var primaryStrong: Color { theme.primaryStrong }
     static var badgeBackground: Color { theme.softBackground }
