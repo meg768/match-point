@@ -83,6 +83,7 @@ struct TennisMatch: Identifiable, Equatable {
     let round: String?
     let score: String?
     let status: String?
+    let duration: String?
     let playerA: MatchPlayer
     let playerB: MatchPlayer
 
@@ -313,6 +314,18 @@ struct RankingHistoryPoint: Identifiable, Equatable {
     let rank: Int
 }
 
+struct PlayerMatchTab: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let matches: [TennisMatch]
+}
+
+struct PlayerWorkspaceProfile: Equatable {
+    let stats: PlayerDashboardStats?
+    let rankingHistory: [RankingHistoryPoint]
+    let matchTabs: [PlayerMatchTab]
+}
+
 struct HeadToHeadMatch: Identifiable, Equatable {
     let id: String
     let date: String
@@ -323,6 +336,51 @@ struct HeadToHeadMatch: Identifiable, Equatable {
     let loserName: String
     let loserRank: Int?
     let score: String?
+}
+
+struct PlayerComparison: Equatable {
+    let playerA: PlayerDashboardStats?
+    let playerB: PlayerDashboardStats?
+    let rankingHistoryA: [RankingHistoryPoint]
+    let rankingHistoryB: [RankingHistoryPoint]
+    let headToHeadWinsA: Int
+    let headToHeadWinsB: Int
+    let headToHeadMatches: [HeadToHeadMatch]
+}
+
+enum ComparisonSlot {
+    case playerA
+    case playerB
+}
+
+struct DataLogEntry: Identifiable, Equatable {
+    enum Status: String {
+        case started
+        case success
+        case failed
+        case cache
+
+        var title: String {
+            switch self {
+            case .started:
+                return "Start"
+            case .success:
+                return "OK"
+            case .failed:
+                return "Fel"
+            case .cache:
+                return "Cache"
+            }
+        }
+    }
+
+    let id: UUID
+    let timestamp: Date
+    let source: String
+    let operation: String
+    let detail: String
+    let durationMS: Int?
+    let status: Status
 }
 
 struct MatchDashboard: Equatable {
@@ -338,6 +396,8 @@ struct MatchDashboard: Equatable {
     let modelA: Double?
     let modelB: Double?
     let winFactorA: Double?
+    let mpA: Double?
+    let mpB: Double?
 
     var winFactorB: Double? {
         winFactorA.map { 1 - $0 }
@@ -356,7 +416,9 @@ struct MatchDashboard: Equatable {
             headToHeadMatches: headToHeadMatches,
             modelA: odds?.oddsA,
             modelB: odds?.oddsB,
-            winFactorA: odds?.probabilityA
+            winFactorA: odds?.probabilityA,
+            mpA: mpA,
+            mpB: mpB
         )
     }
 }

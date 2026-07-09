@@ -10,7 +10,9 @@ enum SettingsStore {
     private static let appearanceModeKey = "ui.appearanceMode"
     private static let surfaceThemeKey = "ui.surfaceTheme"
     private static let surfaceModeKey = "model.surfaceMode"
+    private static let navigatorPanelWidthKey = "ui.navigatorPanelWidth"
     private static let matchPanelWidthKey = "ui.matchPanelWidth"
+    private static let modePanelWidthKeyPrefix = "ui.modePanelWidth"
 
     static func loadDatabaseSettings() -> DatabaseSettings {
         let env = loadEnvironment()
@@ -82,12 +84,55 @@ enum SettingsStore {
         return width > 0 ? CGFloat(width) : nil
     }
 
+    static func loadMatchPanelWidths() -> [MatchPointMode: CGFloat] {
+        var widths: [MatchPointMode: CGFloat] = [:]
+
+        for mode in MatchPointMode.allCases {
+            if let width = loadMatchPanelWidth(for: mode) {
+                widths[mode] = width
+            }
+        }
+
+        if widths[.matches] == nil, let legacyWidth = loadMatchPanelWidth() {
+            widths[.matches] = legacyWidth
+        }
+
+        return widths
+    }
+
+    static func loadMatchPanelWidth(for mode: MatchPointMode) -> CGFloat? {
+        let key = modePanelWidthKey(for: mode)
+        guard UserDefaults.standard.object(forKey: key) != nil else {
+            return nil
+        }
+
+        let width = UserDefaults.standard.double(forKey: key)
+        return width > 0 ? CGFloat(width) : nil
+    }
+
+    static func loadNavigatorPanelWidth() -> CGFloat? {
+        let width = UserDefaults.standard.double(forKey: navigatorPanelWidthKey)
+        return width > 0 ? CGFloat(width) : nil
+    }
+
     static func save(matchPanelWidth: CGFloat) {
         UserDefaults.standard.set(Double(matchPanelWidth), forKey: matchPanelWidthKey)
     }
 
+    static func save(matchPanelWidth: CGFloat, for mode: MatchPointMode) {
+        UserDefaults.standard.set(Double(matchPanelWidth), forKey: modePanelWidthKey(for: mode))
+    }
+
+    static func save(navigatorPanelWidth: CGFloat) {
+        UserDefaults.standard.set(Double(navigatorPanelWidth), forKey: navigatorPanelWidthKey)
+    }
+
     private static func loadEnvironment() -> [String: String] {
         ProcessInfo.processInfo.environment.merging(loadAppSupportEnv()) { _, fileValue in fileValue }
+    }
+
+    private static func modePanelWidthKey(for mode: MatchPointMode) -> String {
+        "\(modePanelWidthKeyPrefix).\(mode.rawValue)"
     }
 
     private static func loadAppSupportEnv() -> [String: String] {

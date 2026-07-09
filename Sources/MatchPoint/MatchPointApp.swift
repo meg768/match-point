@@ -15,8 +15,24 @@ struct MatchPointApp: App {
         }
         .windowStyle(.titleBar)
         .commands {
-            SidebarCommands()
             CommandGroup(after: .toolbar) {
+                Button("Matcher") {
+                    NotificationCenter.default.post(name: .selectMatchPointMode, object: MatchPointMode.matches.rawValue)
+                }
+                .keyboardShortcut("1", modifiers: .command)
+
+                Button("Spelare") {
+                    NotificationCenter.default.post(name: .selectMatchPointMode, object: MatchPointMode.players.rawValue)
+                }
+                .keyboardShortcut("2", modifiers: .command)
+
+                Button("Jämför") {
+                    NotificationCenter.default.post(name: .selectMatchPointMode, object: MatchPointMode.compare.rawValue)
+                }
+                .keyboardShortcut("3", modifiers: .command)
+
+                Divider()
+
                 Button("Livepoäng") {
                     openWindow(id: "scoreboard")
                 }
@@ -49,4 +65,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension Notification.Name {
     static let openMatchPointSettings = Notification.Name("openMatchPointSettings")
+    static let selectMatchPointMode = Notification.Name("selectMatchPointMode")
 }

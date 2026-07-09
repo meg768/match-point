@@ -5,11 +5,14 @@ import NIOPosix
 
 enum ATPDatabaseError: LocalizedError {
     case invalidHost
+    case missingWinFactor
 
     var errorDescription: String? {
         switch self {
         case .invalidHost:
             return "Ogiltig databashost eller port."
+        case .missingWinFactor:
+            return "Modellen kunde inte beräkna vinstfaktor för den här matchen."
         }
     }
 }
@@ -81,6 +84,7 @@ struct ATPDatabase {
             let rankingHistoryB = try await loadRankingHistory(name: match.playerB.name, on: connection)
             let headToHead = try await loadHeadToHead(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
             let headToHeadMatches = try await loadHeadToHeadMatches(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
+            let mpOdds = try? await loadMPOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, on: connection)
 
             return MatchDashboard(
                 matchID: match.id,
@@ -94,7 +98,9 @@ struct ATPDatabase {
                 headToHeadMatches: headToHeadMatches,
                 modelA: nil,
                 modelB: nil,
-                winFactorA: nil
+                winFactorA: nil,
+                mpA: mpOdds?.oddsA,
+                mpB: mpOdds?.oddsB
             )
         }
 
@@ -110,6 +116,7 @@ struct ATPDatabase {
         let dashboard = try await withConnection { connection in
             let playerA = try await loadPlayerStats(name: match.playerA.name, surface: surface, on: connection)
             let playerB = try await loadPlayerStats(name: match.playerB.name, surface: surface, on: connection)
+            let mpOdds = try? await loadMPOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, on: connection)
 
             return MatchDashboard(
                 matchID: match.id,
@@ -123,7 +130,9 @@ struct ATPDatabase {
                 headToHeadMatches: [],
                 modelA: nil,
                 modelB: nil,
-                winFactorA: nil
+                winFactorA: nil,
+                mpA: mpOdds?.oddsA,
+                mpB: mpOdds?.oddsB
             )
         }
 
@@ -167,44 +176,78 @@ struct ATPDatabase {
 
     func loadPlayerMatches(name: String, limit: Int = 120) async throws -> [TennisMatch] {
         try await withConnection { connection in
+            try await loadPlayerMatches(name: name, limit: limit, on: connection)
+        }
+    }
+
+    func loadPlayerProfile(name: String, surface: TennisSurface) async throws -> (stats: PlayerDashboardStats?, rankingHistory: [RankingHistoryPoint], matchTabs: [PlayerMatchTab]) {
+        try await withConnection { connection in
+            let stats = try await loadPlayerStats(name: name, surface: surface, on: connection)
+            let resolvedName = stats?.name ?? name
+            let rankingHistory = try await loadRankingHistory(name: resolvedName, on: connection)
+            let matchTabs = try await loadPlayerMatchTabs(name: resolvedName, playerID: stats?.id, on: connection)
+
+            return (stats, rankingHistory, matchTabs)
+        }
+    }
+
+    func searchPlayers(query: String, limit: Int = 80) async throws -> [RankedPlayer] {
+        try await withConnection { connection in
+            let pattern = "%\(query.trimmingCharacters(in: .whitespacesAndNewlines))%"
             let rows = try await connection.query(
                 """
                 SELECT
-                    m.id,
-                    DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
-                    e.name AS event_name,
-                    e.type AS event_type,
-                    e.surface AS event_surface,
-                    m.round,
-                    m.score,
-                    m.status,
-                    winner.id AS winner_id,
-                    winner.name AS winner_name,
-                    winner.country AS winner_country,
-                    m.winner_rank,
-                    loser.id AS loser_id,
-                    loser.name AS loser_name,
-                    loser.country AS loser_country,
-                    m.loser_rank
-                FROM matches m
-                JOIN events e ON e.id = m.event
-                LEFT JOIN players winner ON winner.id = m.winner
-                LEFT JOIN players loser ON loser.id = m.loser
-                WHERE e.date IS NOT NULL
-                  AND m.winner IS NOT NULL
-                  AND m.loser IS NOT NULL
-                  AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
-                ORDER BY e.date DESC, e.id DESC, m.id DESC
+                    id AS player,
+                    name,
+                    country,
+                    rank,
+                    points,
+                    elo_rank,
+                    elo_rank_hard,
+                    elo_rank_clay,
+                    elo_rank_grass
+                FROM players
+                WHERE (? = '' OR name LIKE ? OR id LIKE ?)
+                  AND (rank IS NOT NULL OR elo_rank IS NOT NULL)
+                ORDER BY
+                    CASE WHEN rank IS NULL THEN 1 ELSE 0 END ASC,
+                    rank ASC,
+                    elo_rank DESC,
+                    name ASC
                 LIMIT ?
                 """,
                 [
-                    MySQLData(string: name),
-                    MySQLData(string: name),
+                    MySQLData(string: query.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    MySQLData(string: pattern),
+                    MySQLData(string: pattern),
                     MySQLData(int: limit)
                 ]
             ).get()
 
-            return rows.compactMap(makeTennisMatch)
+            return rows.compactMap(makeRankedPlayer)
+        }
+    }
+
+    func loadPlayerComparison(playerA: String, playerB: String, surface: TennisSurface) async throws -> PlayerComparison {
+        try await withConnection { connection in
+            let statsA = try await loadPlayerStats(name: playerA, surface: surface, on: connection)
+            let statsB = try await loadPlayerStats(name: playerB, surface: surface, on: connection)
+            let nameA = statsA?.name ?? playerA
+            let nameB = statsB?.name ?? playerB
+            let rankingHistoryA = try await loadRankingHistory(name: nameA, on: connection)
+            let rankingHistoryB = try await loadRankingHistory(name: nameB, on: connection)
+            let headToHead = try await loadHeadToHead(playerA: nameA, playerB: nameB, on: connection)
+            let headToHeadMatches = try await loadHeadToHeadMatches(playerA: nameA, playerB: nameB, on: connection)
+
+            return PlayerComparison(
+                playerA: statsA,
+                playerB: statsB,
+                rankingHistoryA: rankingHistoryA,
+                rankingHistoryB: rankingHistoryB,
+                headToHeadWinsA: headToHead.playerAWins,
+                headToHeadWinsB: headToHead.playerBWins,
+                headToHeadMatches: headToHeadMatches
+            )
         }
     }
 
@@ -228,23 +271,25 @@ struct ATPDatabase {
             """
         ).get()
 
-        return rows.compactMap { row in
-            guard let player = row.string("player"), let name = row.string("name"), let rank = row.int("rank") else {
-                return nil
-            }
+        return rows.compactMap(makeRankedPlayer)
+    }
 
-            return RankedPlayer(
-                player: player,
-                name: name,
-                country: row.string("country"),
-                rank: rank,
-                points: row.int("points"),
-                eloRank: row.int("elo_rank"),
-                hardElo: row.int("elo_rank_hard"),
-                clayElo: row.int("elo_rank_clay"),
-                grassElo: row.int("elo_rank_grass")
-            )
+    private func makeRankedPlayer(row: MySQLRow) -> RankedPlayer? {
+        guard let player = row.string("player"), let name = row.string("name") else {
+            return nil
         }
+
+        return RankedPlayer(
+            player: player,
+            name: name,
+            country: row.string("country"),
+            rank: row.int("rank") ?? 9999,
+            points: row.int("points"),
+            eloRank: row.int("elo_rank"),
+            hardElo: row.int("elo_rank_hard"),
+            clayElo: row.int("elo_rank_clay"),
+            grassElo: row.int("elo_rank_grass")
+        )
     }
 
     private func loadRecentMatches(on connection: MySQLConnection) async throws -> [TennisMatch] {
@@ -259,6 +304,7 @@ struct ATPDatabase {
                 m.round,
                 m.score,
                 m.status,
+                m.duration,
                 winner.id AS winner_id,
                 winner.name AS winner_name,
                 winner.country AS winner_country,
@@ -277,6 +323,104 @@ struct ATPDatabase {
             ORDER BY e.date DESC, e.id DESC, m.id DESC
             LIMIT 80
             """
+        ).get()
+
+        return rows.compactMap(makeTennisMatch)
+    }
+
+    private func loadPlayerMatches(name: String, limit: Int, on connection: MySQLConnection) async throws -> [TennisMatch] {
+        let rows = try await connection.query(
+            """
+            SELECT
+                m.id,
+                DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
+                e.name AS event_name,
+                e.type AS event_type,
+                e.surface AS event_surface,
+                m.round,
+                m.score,
+                m.status,
+                m.duration,
+                winner.id AS winner_id,
+                winner.name AS winner_name,
+                winner.country AS winner_country,
+                m.winner_rank,
+                loser.id AS loser_id,
+                loser.name AS loser_name,
+                loser.country AS loser_country,
+                m.loser_rank
+            FROM matches m
+            JOIN events e ON e.id = m.event
+            LEFT JOIN players winner ON winner.id = m.winner
+            LEFT JOIN players loser ON loser.id = m.loser
+            WHERE e.date IS NOT NULL
+              AND m.winner IS NOT NULL
+              AND m.loser IS NOT NULL
+              AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
+            ORDER BY e.date DESC, e.id DESC, m.id DESC
+            LIMIT ?
+            """,
+            [
+                MySQLData(string: name),
+                MySQLData(string: name),
+                MySQLData(int: limit)
+            ]
+        ).get()
+
+        return rows.compactMap(makeTennisMatch)
+    }
+
+    private func loadPlayerMatchTabs(name: String, playerID: String?, on connection: MySQLConnection) async throws -> [PlayerMatchTab] {
+        let matches = try await loadPlayerCareerMatches(name: playerID ?? name, on: connection)
+
+        return PlayerMatchFilter.allCases.compactMap { filter in
+            let filteredMatches = filter.matches(from: matches, playerID: playerID, playerName: name)
+            guard !filteredMatches.isEmpty else {
+                return nil
+            }
+
+            return PlayerMatchTab(id: filter.rawValue, title: filter.title, matches: filteredMatches)
+        }
+    }
+
+    private func loadPlayerCareerMatches(name: String, on connection: MySQLConnection) async throws -> [TennisMatch] {
+        let rows = try await connection.query(
+            """
+            SELECT
+                m.id,
+                DATE_FORMAT(e.date, '%Y-%m-%d') AS event_date,
+                e.name AS event_name,
+                e.type AS event_type,
+                e.surface AS event_surface,
+                m.round,
+                m.score,
+                m.status,
+                m.duration,
+                winner.id AS winner_id,
+                winner.name AS winner_name,
+                winner.country AS winner_country,
+                m.winner_rank,
+                loser.id AS loser_id,
+                loser.name AS loser_name,
+                loser.country AS loser_country,
+                m.loser_rank
+            FROM matches m
+            JOIN events e ON e.id = m.event
+            LEFT JOIN players winner ON winner.id = m.winner
+            LEFT JOIN players loser ON loser.id = m.loser
+            WHERE e.date IS NOT NULL
+              AND m.winner IS NOT NULL
+              AND m.loser IS NOT NULL
+              AND (m.winner = PLAYER_LOOKUP(?) OR m.loser = PLAYER_LOOKUP(?))
+            ORDER BY e.date DESC,
+              FIELD(m.round, 'F', 'SF', 'QF', 'R16', 'R32', 'R64', 'R128', 'Q3', 'Q2', 'Q1', 'RR', 'RR2', 'RR3', 'RR4', 'RR5', 'RR6', 'BR') ASC,
+              e.id DESC,
+              m.id DESC
+            """,
+            [
+                MySQLData(string: name),
+                MySQLData(string: name)
+            ]
         ).get()
 
         return rows.compactMap(makeTennisMatch)
@@ -302,6 +446,7 @@ struct ATPDatabase {
             round: row.string("round"),
             score: row.string("score"),
             status: row.string("status"),
+            duration: row.string("duration"),
             playerA: MatchPlayer(
                 id: row.string("winner_id"),
                 name: winnerName,
@@ -687,6 +832,33 @@ struct ATPDatabase {
         try await TennisAbstractOddsClient.shared.loadOdds(playerA: playerA, playerB: playerB, surface: surface)
     }
 
+    private func loadMPOdds(playerA: String, playerB: String, surface: TennisSurface, on connection: MySQLConnection) async throws -> MPOdds {
+        let rows = try await connection.query(
+            """
+            SELECT
+                PLAYER_WIN_FACTOR(PLAYER_LOOKUP(?), PLAYER_LOOKUP(?), ?) AS win_factor_a
+            LIMIT 1
+            """,
+            [
+                MySQLData(string: playerA),
+                MySQLData(string: playerB),
+                MySQLData(string: surface.rawValue.capitalized)
+            ]
+        ).get()
+
+        guard let row = rows.first, let winFactorA = row.double("win_factor_a"), winFactorA > 0, winFactorA < 1 else {
+            throw ATPDatabaseError.missingWinFactor
+        }
+
+        let pricedA = winFactorA * 1.05
+        let pricedB = (1 - winFactorA) * 1.05
+
+        return MPOdds(
+            oddsA: pricedA > 0 ? roundOdds(1 / pricedA) : nil,
+            oddsB: pricedB > 0 ? roundOdds(1 / pricedB) : nil
+        )
+    }
+
     private func withConnection<T>(_ work: (MySQLConnection) async throws -> T) async throws -> T {
         guard let socketAddress = try? SocketAddress.makeAddressResolvingHost(settings.host, port: settings.port) else {
             throw ATPDatabaseError.invalidHost
@@ -713,6 +885,145 @@ struct ATPDatabase {
             throw error
         }
     }
+}
+
+private struct MPOdds {
+    let oddsA: Double?
+    let oddsB: Double?
+}
+
+private enum PlayerMatchFilter: String, CaseIterable {
+    case career
+    case wins
+    case finals
+    case grandSlams
+    case masters
+    case atp500
+    case atp250
+    case upsets
+    case warnings
+
+    var title: String {
+        switch self {
+        case .career:
+            return "Karriär"
+        case .wins:
+            return "Vinster"
+        case .finals:
+            return "Finaler"
+        case .grandSlams:
+            return "Grand Slams"
+        case .masters:
+            return "Masters"
+        case .atp500:
+            return "ATP-500"
+        case .atp250:
+            return "ATP-250"
+        case .upsets:
+            return "Skrällar"
+        case .warnings:
+            return "Varningsflaggor"
+        }
+    }
+
+    func matches(from matches: [TennisMatch], playerID: String?, playerName: String) -> [TennisMatch] {
+        switch self {
+        case .career:
+            return matches
+        case .wins:
+            return matches.filter { didWin($0, playerID: playerID, playerName: playerName) }
+        case .finals:
+            return matches.filter { $0.round == "F" }
+        case .grandSlams:
+            return titleMatches(matches, eventType: "Grand Slam", playerID: playerID, playerName: playerName)
+        case .masters:
+            return titleMatches(matches, eventType: "Masters", playerID: playerID, playerName: playerName)
+        case .atp500:
+            return titleMatches(matches, eventType: "ATP-500", playerID: playerID, playerName: playerName)
+        case .atp250:
+            return titleMatches(matches, eventType: "ATP-250", playerID: playerID, playerName: playerName)
+        case .upsets:
+            return matches.filter { match in
+                guard
+                    match.date >= Self.recentCutoffDate,
+                    didWin(match, playerID: playerID, playerName: playerName),
+                    let ownRank = playerRank(in: match, playerID: playerID, playerName: playerName),
+                    let opponentRank = opponentRank(in: match, playerID: playerID, playerName: playerName)
+                else {
+                    return false
+                }
+
+                return opponentRank < ownRank && ownRank - opponentRank >= 15
+            }
+        case .warnings:
+            return matches.filter { match in
+                guard
+                    match.date >= Self.recentCutoffDate,
+                    !didWin(match, playerID: playerID, playerName: playerName),
+                    let ownRank = playerRank(in: match, playerID: playerID, playerName: playerName),
+                    let opponentRank = opponentRank(in: match, playerID: playerID, playerName: playerName)
+                else {
+                    return false
+                }
+
+                return opponentRank > ownRank && opponentRank - ownRank >= 20
+            }
+        }
+    }
+
+    private func titleMatches(_ matches: [TennisMatch], eventType: String, playerID: String?, playerName: String) -> [TennisMatch] {
+        matches.filter { match in
+            match.round == "F"
+                && match.eventType == eventType
+                && didWin(match, playerID: playerID, playerName: playerName)
+        }
+    }
+
+    private func didWin(_ match: TennisMatch, playerID: String?, playerName: String) -> Bool {
+        isPlayer(match.playerA, playerID: playerID, playerName: playerName)
+    }
+
+    private func playerRank(in match: TennisMatch, playerID: String?, playerName: String) -> Int? {
+        if isPlayer(match.playerA, playerID: playerID, playerName: playerName) {
+            return match.playerA.rank
+        }
+
+        if isPlayer(match.playerB, playerID: playerID, playerName: playerName) {
+            return match.playerB.rank
+        }
+
+        return nil
+    }
+
+    private func opponentRank(in match: TennisMatch, playerID: String?, playerName: String) -> Int? {
+        if isPlayer(match.playerA, playerID: playerID, playerName: playerName) {
+            return match.playerB.rank
+        }
+
+        if isPlayer(match.playerB, playerID: playerID, playerName: playerName) {
+            return match.playerA.rank
+        }
+
+        return nil
+    }
+
+    private func isPlayer(_ player: MatchPlayer, playerID: String?, playerName: String) -> Bool {
+        if let playerID, player.id == playerID {
+            return true
+        }
+
+        return player.name.caseInsensitiveCompare(playerName) == .orderedSame
+    }
+
+    private static let recentCutoffDate: String = {
+        let calendar = Calendar(identifier: .gregorian)
+        let cutoff = calendar.date(byAdding: .year, value: -1, to: Date()) ?? Date()
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: cutoff)
+    }()
 }
 
 private func roundOdds(_ value: Double) -> Double {

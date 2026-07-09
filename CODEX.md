@@ -1,5 +1,156 @@
 # Codex Context
 
+## Handoff July 9, 2026
+
+Latest product/design state: Magnus is undecided about the best navigation
+model, and that uncertainty is intentional. Preserve the current experiment
+rather than over-committing. The app is trying to become a fast native ATP
+workbench, not simply "an app with views".
+
+Current UI experiment:
+
+- The visible left navigator/tree was removed.
+- Main window is now two resizable panels: content/list on the left, details on
+  the right.
+- Main modes are selected from the macOS `View` menu:
+  - `Cmd+1` Matcher
+  - `Cmd+2` Spelare
+  - `Cmd+3` Jämför
+  - `Cmd+4` Visa logg
+- This may be kept, backed out, or combined with a small visible segmented
+  control. Do not assume the View-menu approach is final.
+
+The working mental model right now is three daily work modes:
+
+1. `Matcher`: Oddset/live/upcoming match list on the left, match overview on
+   the right.
+2. `Spelare`: searchable player list on the left, player overview on the
+   right.
+3. `Jämför`: searchable player list on the left, choose temporary `Spelare A`
+   and `Spelare B`, then compare them on the right.
+
+The A/B comparison concept is promising now that search works in `Jämför`.
+Search is shared between `Spelare` and `Jämför`; switching into either mode
+should run a player search with the current toolbar search text. A good future
+polish path is clearer A/B slots, swap/clear controls, and keyboard flow for
+assigning selected search results to A or B.
+
+Navigation is still a product question. The old Mail-like tree felt useful for
+orientation, but took space and added visual weight. The current two-panel
+version is cleaner and worth trying in real use before deciding. If Magnus says
+it feels hidden or hard to orient, consider adding a compact in-window mode
+segmented control before restoring the full navigator tree.
+
+Odds/model state:
+
+- `Oddset`: live market odds from Oddset/Kambi.
+- `TA`: Tennis Abstract-derived odds.
+- `MP`: Magnus' own Match Point database model, backed by the database
+  `PLAYER_WIN_FACTOR(...)`.
+- `Codex`: local lightweight direction model in Swift. It uses surface ELO
+  first, then ranking, current-surface win rate, recent form, and broader form.
+  The score is turned into a probability with a sigmoid, clamped to 8-92%, then
+  priced with a 5% margin. It is intentionally not trained/backtested yet.
+
+Codex odds weights as currently implemented:
+
+```text
+score =
+  ((surfaceEloA - surfaceEloB) / 520) * 0.62
++ log(rankB / rankA)                  * 0.28
++ (surfaceWinPctA - surfaceWinPctB)   * 0.38
++ (recentWinPctA - recentWinPctB)     * 0.22
++ (formWinPctA - formWinPctB)         * 0.18
+
+pA = clamp(1 / (1 + exp(-(scoreA - scoreB))), 0.08, 0.92)
+oddsA = 1 / (pA * 1.05)
+oddsB = 1 / ((1 - pA) * 1.05)
+```
+
+Kelly state:
+
+- The `ODDS` section includes a Kelly recommendation block with bankroll
+  currently set to `1,000 kr`.
+- It chooses the best positive Kelly candidate across available model sources
+  and displays full Kelly plus `1/4`, `1/8`, `1/16`, and `1/32`.
+- Keep it visually quiet and exploratory; do not frame it as financial advice.
+
+## Handoff July 7, 2026
+
+Latest product direction: continue with the native Mac app as Magnus' primary
+analysis tool. Treat it as a dense local ATP instrument/cockpit, not a public
+website. A web version can later become a distilled/shareable surface if the
+native workflows prove valuable.
+
+Current active UI work has focused on a redesigned `PlayerInspectorView` sheet.
+Despite earlier notes saying sheets were not preferred, the current working
+direction is that a player sheet is useful for deeper drill-down from the match
+overview and the left match list. Keep it native, compact, and visually aligned
+with the match overview.
+
+Player inspector current behavior:
+
+- Opens from player names in the right match overview.
+- Left-list clicks should only select the match, even when clicking directly on
+  a player name.
+- Supports browser-like drill-down inside the same sheet: clicking winner/loser
+  names in the inspector's match table navigates to that opponent, with a back
+  button next to the close button.
+- Header uses a compact flag/name/country/rank look, while the avatar lives in
+  the overview grid.
+- Sheet is intentionally wide; do not make it cramped.
+
+Player inspector sections:
+
+- `ÖVERSIKT`: avatar spanning three rows, then compact profile cells.
+- `TITLAR`: normal grid cells for Grand Slam, Masters, ATP-500, ATP-250.
+- `RANKING`: single-player ranking chart with the shared `1Y/2Y/3Y/4Y/5Y`
+  picker, default `2Y`.
+- `MATCHER`: fixed-height internally scrolling table, horizontal scroll,
+  sortable columns, and pill filters.
+
+Inspector match pills:
+
+- `KARRIÄR`, `VINSTER`, `FINALER`, `GRAND SLAMS`, `MASTERS`, `ATP-500`,
+  `ATP-250`, `SKRÄLLAR`, `VARNINGSFLAGGOR`.
+- Empty pills should not be shown.
+- `SKRÄLLAR` and `VARNINGSFLAGGOR` should be recent, roughly one year back.
+- The crash on July 6 was caused by MySQLNIO asserting in `MySQLQueryCommand`
+  while the inspector was loading multiple tab SQL queries. The fix was to load
+  the player career matches once and filter tabs locally in Swift.
+
+Shared UI components and formatting:
+
+- Use `ProfileGridCell` for the compact label/value cells. Label and value use
+  the same system font family; vary only size/weight. No monospaced font in
+  these cells.
+- All SwiftUI font declarations should use one font family. We removed
+  `design: .monospaced` and `design: .rounded` from the app.
+- Use `AppPill` as the shared pill base. Pills render text in CAPS and use a
+  smaller default font. `PillLabel`, match filters, ranking range pills,
+  surface picker, and inspector match pills should go through this shared style
+  unless there is a strong reason not to.
+- Use `AppFormat.dollars(_:)` for money. Desired format is `$13,698,562`; do
+  not show `US$`, spaces, or ungrouped values like `$13698562`.
+
+Build and verification habit:
+
+```bash
+swift build
+Scripts/build-app.sh debug
+xattr -c "dist/Match Point.app"
+codesign --verify --deep --strict --verbose=2 "dist/Match Point.app"
+```
+
+`dist/Match Point.app` sometimes receives `com.apple.FinderInfo` on the app
+directory. If strict codesign verification complains, clear xattrs on the app
+directory and verify again.
+
+The working tree may be dirty with intentional local changes across
+`ATPDatabase.swift`, `ContentView.swift`, `Models.swift`,
+`PlayerInspectorView.swift`, and `ScoreboardWindow.swift`. Do not revert them
+unless Magnus explicitly asks.
+
 ## Project
 
 `Match Point` is a native macOS SwiftUI app for ATP tennis data from Magnus'
@@ -83,6 +234,25 @@ daily tennis workflow instead of adding more panels by default. Good next steps
 are likely about deciding what Magnus wants to inspect first, then simplifying
 the visible surface around that.
 
+Current native app direction: keep one main window with a Mail/Finder-like
+three-column structure, not many windows or modal flows: a narrow navigator
+sidebar, a list/search column, and a right inspector. The first navigator items
+are `Matcher`, `Spelare`, `Jämför`, plus a `Databas` disclosure group with
+`Visa logg`. `Matcher` keeps the Oddset/live workflow. `Spelare` is an inline
+player workspace: searchable player list in the middle column, selected player
+overview on the right with current ranking/profile/titles/ranking
+history/matches. `Jämför` uses the same player search results to fill two
+comparison slots and shows HTH, profile metrics, ranking history, and previous
+meetings on the right. `Databas > Visa logg` shows store-level data operation
+logs for Oddset, ATP dashboard loads, player search/profile loads, comparison
+loads, duration, status, and cache hits. All three main columns should be
+resizable in width through split dividers.
+
+Visual shell direction: the three main columns should feel like Mail columns,
+not separate cards. Keep the outer navigator/list/detail surfaces flat with
+thin vertical separators; reserve rounded bordered panels/cards for content
+inside the inspector where they improve scanning.
+
 Evening product conclusion from July 5: the right-side match overview is the
 main product surface. It should act like the player's/match's inspector in
 context instead of opening a separate `Player Inspector` sheet/dialog/window.
@@ -93,16 +263,41 @@ Keep the workflow KISS:
 3. Scroll vertically through compact sections when more depth is needed.
 4. Avoid extra modal layers unless there is a very clear reason.
 
-The current right-panel section stack is a good direction:
+Current right-panel direction as of July 6: keep a vertically scrolling match
+overview with compact comparison sections. The right panel is the main place to
+compare the two selected players; separate player sheets/windows were explored
+but are not the preferred direction right now.
+
+The current section stack is:
 
 - `ÖVERSIKT`
-- `ELO`
+- `ODDS`
 - `TITLAR`
-- `SKRÄLLAR`
-- `VARNINGSFLAGGOR`
 - `PROFIL`
 - `RANKING`
 - `TIDIGARE MÖTEN`
+
+`PROFIL` is currently the favored compact layout for player facts: two
+player cards with cell labels in CAPS and values beneath. It includes age,
+height/weight/BMI, ranking, current-surface ELO/total ELO, best ranking with
+date (`#3 (2017-11-20)` style), and pro-since. BMI should be rounded, not shown
+with decimals.
+
+`ODDS` is a full-width table with the columns `Namn`, `Oddset`, `TA`, `MP`,
+and `Codex`. `Oddset` is live market odds. `TA` is Tennis Abstract-derived
+odds. `MP` is Magnus' own Match Point model/database odds. `Codex` is Codex' local
+lightweight direction model using ELO, rank, surface record, and
+recent form. Positive edge can be shown in the model cells as `(+15%)`; keep
+this quiet and readable, not a betting engine claim.
+
+`TITLAR` is a full-width table with player name and title counts: total, Grand
+Slam, Masters, ATP-500, and ATP-250. SVG icons for headers were tried and
+reverted; plain text was calmer.
+
+`SKRÄLLAR` and `VARNINGSFLAGGOR` were useful conceptually but too expensive in
+the match overview for now. They were removed from the live dashboard flow
+because they contributed to long delays. Keep the idea parked; if reintroduced,
+make it staged, cached, or user-triggered.
 
 Treat these sections as the primary comparison model. If deeper player detail
 is needed later, first consider adding or refining a section in the right panel
@@ -148,6 +343,18 @@ The current delay when switching matches is understandable because several SQL
 queries run for both players. The next performance work should optimize
 `loadPlayerStats` and section-level loading rather than changing broad UI
 structure.
+
+Next likely improvement: add a small memory cache for non-live ATP data. Keep
+Oddset uncached. Good first targets are player stats, profile facts, titles,
+ranking history, previous meetings, TA odds, MP/model odds, and avatar image
+URLs/images. The goal is to make switching back and forth between matches feel
+instant without ever showing the wrong selected match.
+
+When loading, prefer honest intermediate states:
+
+- Show already available database text before avatars finish.
+- Show "Läser in..." while a heavy section is still loading.
+- Show "Ingen info" only after the app actually knows that no data exists.
 
 ## Visual Design
 

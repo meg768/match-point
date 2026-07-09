@@ -140,7 +140,7 @@ struct ScoreboardCard: View {
                     .lineLimit(1)
                 Spacer()
                 Text(match.startTitleWithOdds)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColors.badgeText)
             }
 
@@ -255,7 +255,7 @@ struct ScoreboardPlayerLine: View {
                 }
 
                 Text(playerMeta)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppColors.badgeText)
                     .lineLimit(1)
             }
