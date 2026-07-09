@@ -45,9 +45,7 @@ struct ContentView: View {
                 onSetComparePlayer: store.setComparePlayer(_:slot:),
                 onClearComparePlayer: store.clearComparePlayer(_:),
                 onSwapComparePlayers: store.swapComparePlayers,
-                onOpenPlayerContext: openPlayer,
-                onOpenMatchPlayer: openPlayer,
-                onCompareMatchPlayers: comparePlayers
+                onOpenMatchPlayer: openPlayer
             )
             .padding([.horizontal, .top], 8)
             .padding(.bottom, 8)
@@ -267,22 +265,6 @@ struct ContentView: View {
         navigationIndex = navigationHistory.count - 1
     }
 
-    private func openPlayer(_ context: PlayerInspectorContext) {
-        let stats = context.stats
-        let player = RankedPlayer(
-            player: context.playerID,
-            name: stats?.name ?? context.displayName,
-            country: stats?.country ?? context.displayCountry,
-            rank: stats?.rank ?? context.rank ?? 9999,
-            points: stats?.points,
-            eloRank: stats?.eloRank,
-            hardElo: stats?.hardElo,
-            clayElo: stats?.clayElo,
-            grassElo: stats?.grassElo
-        )
-        openPlayer(player)
-    }
-
     private func openPlayer(_ player: MatchPlayer) {
         let rankedPlayer = RankedPlayer(
             player: player.id ?? player.name,
@@ -303,10 +285,6 @@ struct ContentView: View {
         apply(.player(player), recordHistory: true)
     }
 
-    private func comparePlayers(_ playerA: RankedPlayer, _ playerB: RankedPlayer) {
-        store.setComparePlayers(playerA: playerA, playerB: playerB)
-        apply(.mode(.compare), recordHistory: true)
-    }
 }
 
 struct ModePillBar: View {
@@ -478,9 +456,7 @@ struct MatchPointSplitView: View {
     let onSetComparePlayer: (RankedPlayer, ComparisonSlot) -> Void
     let onClearComparePlayer: (ComparisonSlot) -> Void
     let onSwapComparePlayers: () -> Void
-    let onOpenPlayerContext: (PlayerInspectorContext) -> Void
     let onOpenMatchPlayer: (MatchPlayer) -> Void
-    let onCompareMatchPlayers: (RankedPlayer, RankedPlayer) -> Void
 
     private let dividerWidth: CGFloat = 14
     private let minListWidth: CGFloat = 280
@@ -535,9 +511,7 @@ struct MatchPointSplitView: View {
                             match: selectedMatch,
                             dashboard: dashboard,
                             isLoading: isLoadingDashboard,
-                            selectedSurface: selectedSurface,
-                            onInspectPlayer: onOpenPlayerContext,
-                            onComparePlayers: onCompareMatchPlayers
+                            selectedSurface: selectedSurface
                         )
                     } else if mode == .players {
                         PlayerWorkspacePanel(
@@ -1613,22 +1587,18 @@ struct DashboardPanel: View {
     let dashboard: MatchDashboard?
     let isLoading: Bool
     let selectedSurface: TennisSurface
-    let onInspectPlayer: (PlayerInspectorContext) -> Void
-    let onComparePlayers: (RankedPlayer, RankedPlayer) -> Void
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 16) {
-                FieldLabel("Matchöversikt")
+                FieldLabel("Jämförelse")
 
                 if let match {
                     MatchOverviewPanel(
                         match: match,
                         dashboard: dashboard,
                         isLoading: isLoading,
-                        selectedSurface: selectedSurface,
-                        onInspectPlayer: onInspectPlayer,
-                        onComparePlayers: onComparePlayers
+                        selectedSurface: selectedSurface
                     )
                 } else {
                     EmptyState(text: "Ingen live eller kommande match vald.", systemImage: "tennisball")
@@ -2035,17 +2005,33 @@ struct ComparisonRankingPanel: View {
 }
 
 struct ComparisonHeadToHeadMatches: View {
-    let comparison: PlayerComparison?
+    let headToHeadWinsA: Int
+    let headToHeadWinsB: Int
+    let matches: [HeadToHeadMatch]?
     let isLoading: Bool
+
+    init(comparison: PlayerComparison?, isLoading: Bool) {
+        self.headToHeadWinsA = comparison?.headToHeadWinsA ?? 0
+        self.headToHeadWinsB = comparison?.headToHeadWinsB ?? 0
+        self.matches = comparison?.headToHeadMatches
+        self.isLoading = isLoading
+    }
+
+    init(headToHeadWinsA: Int, headToHeadWinsB: Int, matches: [HeadToHeadMatch]?, isLoading: Bool) {
+        self.headToHeadWinsA = headToHeadWinsA
+        self.headToHeadWinsB = headToHeadWinsB
+        self.matches = matches
+        self.isLoading = isLoading
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            FieldLabel("Tidigare möten (\(comparison?.headToHeadWinsA ?? 0)-\(comparison?.headToHeadWinsB ?? 0))")
+            FieldLabel("Tidigare möten (\(headToHeadWinsA)-\(headToHeadWinsB))")
 
             VStack(spacing: 0) {
                 HeadToHeadMatchesHeader()
 
-                if let matches = comparison?.headToHeadMatches, !matches.isEmpty {
+                if let matches, !matches.isEmpty {
                     ForEach(matches) { match in
                         HeadToHeadMatchRow(match: match)
                     }
@@ -2368,65 +2354,92 @@ struct MatchOverviewPanel: View {
     let dashboard: MatchDashboard?
     let isLoading: Bool
     let selectedSurface: TennisSurface
-    let onInspectPlayer: (PlayerInspectorContext) -> Void
-    let onComparePlayers: (RankedPlayer, RankedPlayer) -> Void
+    @State private var selectedRange: RankingHistoryRange = .twoYears
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                PillLabel(match.state.title, isActive: match.state == .live)
-                Text(match.tournament ?? "Match")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(AppColors.caption)
-                    .textCase(.uppercase)
-                Spacer()
-                Text(match.startTitle)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(AppColors.badgeText)
-                Button {
-                    onComparePlayers(comparePlayerA, comparePlayerB)
-                } label: {
-                    Label("Jämför spelarna", systemImage: "arrow.left.arrow.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(AppColors.primaryStrong)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(AppColors.badgeBackground)
-                .clipShape(Capsule())
-                .overlay {
-                    Capsule()
-                        .stroke(AppColors.primary.opacity(0.65), lineWidth: 1)
-                }
-            }
-
-            EqualPlayerColumns(match: match, dashboard: dashboard, selectedSurface: selectedSurface, onInspectPlayer: onInspectPlayer)
+        VStack(alignment: .leading, spacing: 16) {
+            ComparisonTitleBar(playerAName: playerAStats.name, playerBName: playerBStats.name)
+            ComparisonPlayerProfileBlock(stats: playerAStats, surface: dashboard?.surface ?? selectedSurface)
+            ComparisonPlayerProfileBlock(stats: playerBStats, surface: dashboard?.surface ?? selectedSurface)
             MatchOddsColumns(match: match, dashboard: dashboard)
+            ComparisonRankingPanel(
+                playerAName: playerAStats.name,
+                playerBName: playerBStats.name,
+                rankingHistoryA: filteredHistory(dashboard?.rankingHistoryA ?? []),
+                rankingHistoryB: filteredHistory(dashboard?.rankingHistoryB ?? []),
+                selectedRange: $selectedRange,
+                isLoading: isLoading
+            )
+            ComparisonHeadToHeadMatches(
+                headToHeadWinsA: dashboard?.headToHeadWinsA ?? 0,
+                headToHeadWinsB: dashboard?.headToHeadWinsB ?? 0,
+                matches: dashboard?.headToHeadMatches,
+                isLoading: isLoading
+            )
         }
         .padding(.bottom, 2)
     }
 
-    private var comparePlayerA: RankedPlayer {
-        rankedPlayer(from: match.playerA, stats: dashboard?.playerA)
+    private var playerAStats: PlayerDashboardStats {
+        dashboard?.playerA ?? fallbackStats(for: match.playerA)
     }
 
-    private var comparePlayerB: RankedPlayer {
-        rankedPlayer(from: match.playerB, stats: dashboard?.playerB)
+    private var playerBStats: PlayerDashboardStats {
+        dashboard?.playerB ?? fallbackStats(for: match.playerB)
     }
 
-    private func rankedPlayer(from player: MatchPlayer, stats: PlayerDashboardStats?) -> RankedPlayer {
-        RankedPlayer(
-            player: stats?.id ?? player.id ?? player.name,
-            name: stats?.name ?? player.name,
-            country: stats?.country ?? player.country,
-            rank: stats?.rank ?? player.rank ?? 9999,
-            points: stats?.points,
-            eloRank: stats?.eloRank,
-            hardElo: stats?.hardElo,
-            clayElo: stats?.clayElo,
-            grassElo: stats?.grassElo
+    private func filteredHistory(_ history: [RankingHistoryPoint]) -> [RankingHistoryPoint] {
+        guard let cutoff = selectedRange.cutoffMonth else {
+            return history
+        }
+
+        return history.filter { $0.month >= cutoff }
+    }
+
+    private func fallbackStats(for player: MatchPlayer) -> PlayerDashboardStats {
+        PlayerDashboardStats(
+            id: player.id ?? player.name,
+            name: player.name,
+            country: player.country,
+            age: nil,
+            pro: nil,
+            height: nil,
+            weight: nil,
+            rank: player.rank,
+            points: nil,
+            highestRank: nil,
+            highestRankDate: nil,
+            careerTitles: nil,
+            grandSlamTitles: 0,
+            mastersTitles: 0,
+            atp500Titles: 0,
+            atp250Titles: 0,
+            careerPrize: nil,
+            ytdWins: nil,
+            ytdLosses: nil,
+            ytdTitles: nil,
+            ytdPrize: nil,
+            serveRating: nil,
+            returnRating: nil,
+            pressureRating: nil,
+            eloRank: nil,
+            hardElo: nil,
+            clayElo: nil,
+            grassElo: nil,
+            totalMatches: 0,
+            totalWins: 0,
+            formMatches: 0,
+            formWins: 0,
+            recentMatches: 0,
+            recentWins: 0,
+            surfaceMatches: 0,
+            surfaceWins: 0,
+            hardMatches: 0,
+            hardWins: 0,
+            clayMatches: 0,
+            clayWins: 0,
+            grassMatches: 0,
+            grassWins: 0
         )
     }
 }
