@@ -31,6 +31,11 @@ struct MatchPointApp: App {
                 }
                 .keyboardShortcut("3", modifiers: .command)
 
+                Button("Favoriter") {
+                    NotificationCenter.default.post(name: .selectMatchPointMode, object: MatchPointMode.favorites.rawValue)
+                }
+                .keyboardShortcut("4", modifiers: .command)
+
                 Divider()
 
                 Button("Livepoäng") {

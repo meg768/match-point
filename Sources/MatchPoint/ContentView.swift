@@ -10,6 +10,10 @@ struct ContentView: View {
     @State private var matchPanelWidths = SettingsStore.loadMatchPanelWidths()
     @State private var matchFilter: MatchListFilter = .all
     @State private var isShowingSettings = false
+    @State private var contextualPlayer: RankedPlayer?
+    @State private var favoritePlayers = SettingsStore.loadFavoritePlayers()
+    @State private var selectedFavoritePlayers: [RankedPlayer] = []
+    @State private var comparedFavoritePlayers: [RankedPlayer] = []
     @State private var navigationHistory: [WorkspaceNavigationEntry] = [.mode(.matches)]
     @State private var navigationIndex = 0
     private let liveRefreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
@@ -29,6 +33,11 @@ struct ContentView: View {
                 selectedPlayerID: store.selectedPlayerID,
                 selectedPlayer: store.selectedPlayer,
                 playerProfile: store.selectedPlayerProfile,
+                contextualPlayer: contextualPlayer,
+                favoritePlayers: favoritePlayers,
+                selectedFavoritePlayers: selectedFavoritePlayers,
+                comparedFavoritePlayers: comparedFavoritePlayers,
+                favoriteMarketMatch: favoriteMarketMatch,
                 comparePlayerA: store.comparePlayerA,
                 comparePlayerB: store.comparePlayerB,
                 comparison: store.playerComparison,
@@ -40,12 +49,17 @@ struct ContentView: View {
                 selectedSurface: store.selectedSurface,
                 matchPanelWidth: matchPanelWidthBinding,
                 onFilterChange: { matchFilter = $0 },
-                onSelect: store.select(oddsetMatch:),
+                onSelect: selectMatch,
                 onSelectPlayerResult: selectPlayerResult,
                 onSetComparePlayer: store.setComparePlayer(_:slot:),
                 onClearComparePlayer: store.clearComparePlayer(_:),
                 onSwapComparePlayers: store.swapComparePlayers,
-                onOpenMatchPlayer: openPlayer
+                onOpenPlayerProfile: openPlayer,
+                onOpenFavorite: openPlayer,
+                onOpenMatchPlayer: openPlayer,
+                onCloseContextPlayer: closeContextPlayer,
+                onToggleFavorite: toggleFavorite,
+                onToggleFavoriteSelection: toggleFavoriteSelection
             )
             .padding([.horizontal, .top], 8)
             .padding(.bottom, 8)
@@ -188,6 +202,26 @@ struct ContentView: View {
         }
     }
 
+    private var favoriteMarketMatch: OddsetMatch? {
+        guard comparedFavoritePlayers.count == 2 else { return nil }
+        let first = comparedFavoritePlayers[0]
+        let second = comparedFavoritePlayers[1]
+
+        return store.oddsetMatches.first { match in
+            (matches(match.playerA, first) && matches(match.playerB, second))
+                || (matches(match.playerA, second) && matches(match.playerB, first))
+        }
+    }
+
+    private func matches(_ matchPlayer: MatchPlayer, _ rankedPlayer: RankedPlayer) -> Bool {
+        if let id = matchPlayer.id, id.caseInsensitiveCompare(rankedPlayer.player) == .orderedSame {
+            return true
+        }
+
+        return matchPlayer.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            == rankedPlayer.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
     private var matchPanelWidthBinding: Binding<CGFloat?> {
         Binding(
             get: {
@@ -220,6 +254,11 @@ struct ContentView: View {
         apply(.player(player), recordHistory: true)
     }
 
+    private func selectMatch(_ match: OddsetMatch) {
+        contextualPlayer = nil
+        store.select(oddsetMatch: match)
+    }
+
     private func goBack() {
         guard canGoBack else {
             return
@@ -242,8 +281,17 @@ struct ContentView: View {
         switch entry {
         case .mode(let selectedMode):
             mode = selectedMode
+            contextualPlayer = nil
+            if selectedMode == .favorites, comparedFavoritePlayers.count == 2 {
+                store.setComparePlayers(playerA: comparedFavoritePlayers[0], playerB: comparedFavoritePlayers[1])
+            }
         case .player(let player):
             mode = .players
+            contextualPlayer = nil
+            store.focus(player: player)
+        case .contextPlayer(let player, let origin):
+            mode = origin
+            contextualPlayer = player
             store.focus(player: player)
         }
 
@@ -280,9 +328,71 @@ struct ContentView: View {
         openPlayer(rankedPlayer)
     }
 
+    private func openPlayer(_ stats: PlayerDashboardStats) {
+        let rankedPlayer = RankedPlayer(
+            player: stats.id,
+            name: stats.name,
+            country: stats.country,
+            rank: stats.rank ?? 9999,
+            points: stats.points,
+            eloRank: stats.eloRank,
+            hardElo: stats.hardElo,
+            clayElo: stats.clayElo,
+            grassElo: stats.grassElo
+        )
+        openPlayer(rankedPlayer)
+    }
+
     private func openPlayer(_ player: RankedPlayer) {
-        searchText = player.name
-        apply(.player(player), recordHistory: true)
+        if mode == .matches || mode == .compare || mode == .favorites {
+            apply(.contextPlayer(player, origin: mode), recordHistory: true)
+        } else {
+            searchText = player.name
+            apply(.player(player), recordHistory: true)
+        }
+    }
+
+    private func closeContextPlayer() {
+        apply(.mode(mode), recordHistory: true)
+    }
+
+    private func toggleFavorite(_ player: RankedPlayer) {
+        if let index = favoritePlayers.firstIndex(where: { $0.player == player.player }) {
+            favoritePlayers.remove(at: index)
+            if store.comparePlayerA?.player == player.player {
+                store.clearComparePlayer(.playerA)
+            }
+            if store.comparePlayerB?.player == player.player {
+                store.clearComparePlayer(.playerB)
+            }
+            selectedFavoritePlayers.removeAll { $0.player == player.player }
+            comparedFavoritePlayers.removeAll { $0.player == player.player }
+        } else {
+            favoritePlayers.append(player)
+            favoritePlayers.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+        SettingsStore.save(favoritePlayers: favoritePlayers)
+    }
+
+    private func toggleFavoriteSelection(_ player: RankedPlayer) {
+        var nextSelection = selectedFavoritePlayers
+
+        if let index = nextSelection.firstIndex(where: { $0.player == player.player }) {
+            nextSelection.remove(at: index)
+        } else {
+            if nextSelection.count == 2 {
+                nextSelection.removeFirst()
+            }
+            nextSelection.append(player)
+        }
+
+        selectedFavoritePlayers = nextSelection
+
+        if nextSelection.count == 2 {
+            contextualPlayer = nil
+            comparedFavoritePlayers = nextSelection
+            store.setComparePlayers(playerA: nextSelection[0], playerB: nextSelection[1])
+        }
     }
 
 }
@@ -295,7 +405,7 @@ struct ModePillBar: View {
         HStack(spacing: 10) {
             ModePillButton(item: .matches, selectedMode: mode, onSelect: onSelect)
             ModePillButton(item: .players, selectedMode: mode, onSelect: onSelect)
-            ModePillButton(item: .compare, selectedMode: mode, onSelect: onSelect)
+            ModePillButton(item: .favorites, selectedMode: mode, onSelect: onSelect)
 
             Spacer(minLength: 0)
         }
@@ -370,12 +480,14 @@ struct ModePillButton: View {
 enum WorkspaceNavigationEntry: Equatable {
     case mode(MatchPointMode)
     case player(RankedPlayer)
+    case contextPlayer(RankedPlayer, origin: MatchPointMode)
 }
 
 enum MatchPointMode: String, CaseIterable, Identifiable {
     case matches
     case players
     case compare
+    case favorites
     case databaseLog
 
     var id: String { rawValue }
@@ -388,6 +500,8 @@ enum MatchPointMode: String, CaseIterable, Identifiable {
             return "Spelare"
         case .compare:
             return "Jämför"
+        case .favorites:
+            return "Favoriter"
         case .databaseLog:
             return "Visa logg"
         }
@@ -401,6 +515,8 @@ enum MatchPointMode: String, CaseIterable, Identifiable {
             return "Sök spelare"
         case .compare:
             return "Sök spelare att jämföra"
+        case .favorites:
+            return "Favoriter"
         case .databaseLog:
             return "Filtrera logg"
         }
@@ -414,6 +530,8 @@ enum MatchPointMode: String, CaseIterable, Identifiable {
             return "person.2"
         case .compare:
             return "arrow.left.arrow.right"
+        case .favorites:
+            return "star"
         case .databaseLog:
             return "list.bullet.rectangle"
         }
@@ -423,7 +541,7 @@ enum MatchPointMode: String, CaseIterable, Identifiable {
         switch self {
         case .players, .compare:
             return true
-        case .matches, .databaseLog:
+        case .matches, .favorites, .databaseLog:
             return false
         }
     }
@@ -440,6 +558,11 @@ struct MatchPointSplitView: View {
     let selectedPlayerID: String?
     let selectedPlayer: RankedPlayer?
     let playerProfile: PlayerWorkspaceProfile?
+    let contextualPlayer: RankedPlayer?
+    let favoritePlayers: [RankedPlayer]
+    let selectedFavoritePlayers: [RankedPlayer]
+    let comparedFavoritePlayers: [RankedPlayer]
+    let favoriteMarketMatch: OddsetMatch?
     let comparePlayerA: RankedPlayer?
     let comparePlayerB: RankedPlayer?
     let comparison: PlayerComparison?
@@ -456,7 +579,12 @@ struct MatchPointSplitView: View {
     let onSetComparePlayer: (RankedPlayer, ComparisonSlot) -> Void
     let onClearComparePlayer: (ComparisonSlot) -> Void
     let onSwapComparePlayers: () -> Void
+    let onOpenPlayerProfile: (PlayerDashboardStats) -> Void
+    let onOpenFavorite: (RankedPlayer) -> Void
     let onOpenMatchPlayer: (MatchPlayer) -> Void
+    let onCloseContextPlayer: () -> Void
+    let onToggleFavorite: (RankedPlayer) -> Void
+    let onToggleFavoriteSelection: (RankedPlayer) -> Void
 
     private let dividerWidth: CGFloat = 14
     private let minListWidth: CGFloat = 280
@@ -477,17 +605,23 @@ struct MatchPointSplitView: View {
                     selectedFilter: selectedFilter,
                     selectedMatchID: selectedMatchID,
                     players: players,
+                    favoritePlayers: favoritePlayers,
+                    selectedFavoritePlayers: selectedFavoritePlayers,
                     selectedPlayerID: selectedPlayerID,
                     comparePlayerA: comparePlayerA,
                     comparePlayerB: comparePlayerB,
                     dataLog: dataLog,
                     isLoadingPlayers: isLoadingPlayers,
+                    isLoadingComparison: isLoadingComparison,
                     onFilterChange: onFilterChange,
                     onSelectMatch: onSelect,
                     onSelectPlayer: onSelectPlayerResult,
                     onSetComparePlayer: onSetComparePlayer,
                     onClearComparePlayer: onClearComparePlayer,
-                    onSwapComparePlayers: onSwapComparePlayers
+                    onSwapComparePlayers: onSwapComparePlayers,
+                    onOpenFavorite: onOpenFavorite,
+                    onToggleFavorite: onToggleFavorite,
+                    onToggleFavoriteSelection: onToggleFavoriteSelection
                 )
                 .frame(width: listWidth)
                 .frame(height: availableHeight, alignment: .top)
@@ -506,12 +640,25 @@ struct MatchPointSplitView: View {
                     )
 
                 Group {
-                    if mode == .matches {
+                    if let contextualPlayer, mode == .matches || mode == .compare || mode == .favorites {
+                        PlayerWorkspacePanel(
+                            player: contextualPlayer,
+                            profile: playerProfile,
+                            isLoading: isLoadingPlayerProfile,
+                            surface: selectedSurface,
+                            contextTitle: mode == .matches ? "Till matchjämförelsen" : mode == .favorites ? "Till favoriter" : "Till jämförelsen",
+                            onCloseContext: onCloseContextPlayer,
+                            isFavorite: favoritePlayers.contains { $0.player == contextualPlayer.player },
+                            onToggleFavorite: { onToggleFavorite(contextualPlayer) },
+                            onSelectPlayer: onOpenMatchPlayer
+                        )
+                    } else if mode == .matches {
                         DashboardPanel(
                             match: selectedMatch,
                             dashboard: dashboard,
                             isLoading: isLoadingDashboard,
-                            selectedSurface: selectedSurface
+                            selectedSurface: selectedSurface,
+                            onOpenPlayer: onOpenPlayerProfile
                         )
                     } else if mode == .players {
                         PlayerWorkspacePanel(
@@ -519,6 +666,8 @@ struct MatchPointSplitView: View {
                             profile: playerProfile,
                             isLoading: isLoadingPlayerProfile,
                             surface: selectedSurface,
+                            isFavorite: selectedPlayer.map { player in favoritePlayers.contains { $0.player == player.player } } ?? false,
+                            onToggleFavorite: selectedPlayer.map { player in { onToggleFavorite(player) } },
                             onSelectPlayer: onOpenMatchPlayer
                         )
                     } else if mode == .compare {
@@ -526,8 +675,20 @@ struct MatchPointSplitView: View {
                             playerA: comparePlayerA,
                             playerB: comparePlayerB,
                             comparison: comparison,
+                            marketMatch: nil,
                             isLoading: isLoadingComparison,
-                            surface: selectedSurface
+                            surface: selectedSurface,
+                            onOpenPlayer: onOpenPlayerProfile
+                        )
+                    } else if mode == .favorites {
+                        PlayerComparisonPanel(
+                            playerA: comparedFavoritePlayers.first,
+                            playerB: comparedFavoritePlayers.count == 2 ? comparedFavoritePlayers[1] : nil,
+                            comparison: comparedFavoritePlayers.count == 2 ? comparison : nil,
+                            marketMatch: favoriteMarketMatch,
+                            isLoading: comparedFavoritePlayers.count == 2 && isLoadingComparison,
+                            surface: selectedSurface,
+                            onOpenPlayer: onOpenPlayerProfile
                         )
                     } else {
                         DataLogPanel(entries: dataLog)
@@ -686,17 +847,23 @@ struct WorkspaceListPanel: View {
     let selectedFilter: MatchListFilter
     let selectedMatchID: String?
     let players: [RankedPlayer]
+    let favoritePlayers: [RankedPlayer]
+    let selectedFavoritePlayers: [RankedPlayer]
     let selectedPlayerID: String?
     let comparePlayerA: RankedPlayer?
     let comparePlayerB: RankedPlayer?
     let dataLog: [DataLogEntry]
     let isLoadingPlayers: Bool
+    let isLoadingComparison: Bool
     let onFilterChange: (MatchListFilter) -> Void
     let onSelectMatch: (OddsetMatch) -> Void
     let onSelectPlayer: (RankedPlayer) -> Void
     let onSetComparePlayer: (RankedPlayer, ComparisonSlot) -> Void
     let onClearComparePlayer: (ComparisonSlot) -> Void
     let onSwapComparePlayers: () -> Void
+    let onOpenFavorite: (RankedPlayer) -> Void
+    let onToggleFavorite: (RankedPlayer) -> Void
+    let onToggleFavoriteSelection: (RankedPlayer) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -725,6 +892,15 @@ struct WorkspaceListPanel: View {
                     onSetPlayer: onSetComparePlayer,
                     onClearPlayer: onClearComparePlayer,
                     onSwapPlayers: onSwapComparePlayers
+                )
+            case .favorites:
+                FavoritePickerPanelContent(
+                    players: favoritePlayers,
+                    selectedPlayers: selectedFavoritePlayers,
+                    isLoadingComparison: isLoadingComparison,
+                    onOpenPlayer: onOpenFavorite,
+                    onToggleSelection: onToggleFavoriteSelection,
+                    onRemoveFavorite: onToggleFavorite
                 )
             case .databaseLog:
                 DataLogListContent(entries: dataLog)
@@ -821,6 +997,166 @@ struct ComparePickerPanelContent: View {
 
     private var canSwap: Bool {
         playerA != nil || playerB != nil
+    }
+}
+
+struct FavoritePickerPanelContent: View {
+    let players: [RankedPlayer]
+    let selectedPlayers: [RankedPlayer]
+    let isLoadingComparison: Bool
+    let onOpenPlayer: (RankedPlayer) -> Void
+    let onToggleSelection: (RankedPlayer) -> Void
+    let onRemoveFavorite: (RankedPlayer) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Favoriter")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(AppColors.heading)
+                    Text(isLoadingComparison ? "Läser jämförelse..." : selectionTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isLoadingComparison ? AppColors.primaryStrong : AppColors.badgeText)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding([.horizontal, .top], 16)
+            .padding(.bottom, 12)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    if players.isEmpty {
+                        LoadingRow(text: "Öppna en spelaröversikt och klicka på stjärnan.")
+                    }
+
+                    ForEach(players) { player in
+                        FavoritePlayerRow(
+                            player: player,
+                            isSelected: selectedPlayers.contains { $0.player == player.player },
+                            onOpen: { onOpenPlayer(player) },
+                            onToggleSelection: { onToggleSelection(player) },
+                            onRemove: { onRemoveFavorite(player) }
+                        )
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
+            }
+        }
+    }
+
+    private var selectionTitle: String {
+        if players.isEmpty { return "Stjärnmarkera en spelare" }
+        if selectedPlayers.isEmpty { return "Markera två av \(players.count) spelare" }
+        return "\(selectedPlayers.count) av 2 markerade"
+    }
+}
+
+struct FavoritePlayerRow: View {
+    let player: RankedPlayer
+    let isSelected: Bool
+    let onOpen: () -> Void
+    let onToggleSelection: () -> Void
+    let onRemove: () -> Void
+    @State private var isHovering = false
+    @State private var isHoveringName = false
+    @State private var removalConfirmationID: UUID?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CountryBadge(country: player.country)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Button(action: onOpen) {
+                    HStack(spacing: 4) {
+                        Text(player.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(isHoveringName ? AppColors.primaryStrong : AppColors.heading)
+                            .lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isHoveringName = hovering
+                    hovering ? NSCursor.pointingHand.set() : NSCursor.arrow.set()
+                }
+                .help("Öppna spelaröversikt för \(player.name)")
+
+                Text(player.rank < 9999 ? "Ranking #\(player.rank)" : (player.country ?? ""))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(AppColors.badgeText)
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            Button(action: handleRemoveClick) {
+                HStack(spacing: 5) {
+                    Image(systemName: isConfirmingRemoval ? "trash.fill" : "star.fill")
+                    if isConfirmingRemoval {
+                        Text("Ta bort")
+                    }
+                }
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(isConfirmingRemoval ? AppColors.danger : AppColors.primaryStrong)
+                .frame(width: isConfirmingRemoval ? 72 : 24, height: 24)
+                .background(isConfirmingRemoval ? AppColors.danger.opacity(0.13) : Color.clear)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help(isConfirmingRemoval ? "Klicka igen för att ta bort" : "Ta bort från favoriter")
+            .animation(.easeInOut(duration: 0.18), value: isConfirmingRemoval)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggleSelection)
+        .help(isSelected ? "Avmarkera \(player.name)" : "Markera \(player.name) för jämförelse")
+        .padding(.horizontal, 10)
+        .frame(height: 58)
+        .background(
+            isSelected
+                ? AppColors.selectionBackground.opacity(0.82)
+                : isHovering ? AppColors.tableRowBackground.opacity(0.72) : AppColors.tableRowBackground
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(
+                    isSelected ? AppColors.primary.opacity(0.82) : isHovering ? AppColors.primary.opacity(0.42) : AppColors.panelBorder,
+                    lineWidth: 1
+                )
+        }
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+
+    private var isConfirmingRemoval: Bool {
+        removalConfirmationID != nil
+    }
+
+    private func handleRemoveClick() {
+        if isConfirmingRemoval {
+            removalConfirmationID = nil
+            onRemove()
+            return
+        }
+
+        let confirmationID = UUID()
+        withAnimation(.easeInOut(duration: 0.18)) {
+            removalConfirmationID = confirmationID
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard removalConfirmationID == confirmationID else {
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                removalConfirmationID = nil
+            }
+        }
     }
 }
 
@@ -1587,6 +1923,7 @@ struct DashboardPanel: View {
     let dashboard: MatchDashboard?
     let isLoading: Bool
     let selectedSurface: TennisSurface
+    let onOpenPlayer: (PlayerDashboardStats) -> Void
 
     var body: some View {
         ScrollView(.vertical) {
@@ -1598,7 +1935,8 @@ struct DashboardPanel: View {
                         match: match,
                         dashboard: dashboard,
                         isLoading: isLoading,
-                        selectedSurface: selectedSurface
+                        selectedSurface: selectedSurface,
+                        onOpenPlayer: onOpenPlayer
                     )
                 } else {
                     EmptyState(text: "Ingen live eller kommande match vald.", systemImage: "tennisball")
@@ -1618,12 +1956,56 @@ struct PlayerWorkspacePanel: View {
     let profile: PlayerWorkspaceProfile?
     let isLoading: Bool
     let surface: TennisSurface
+    var contextTitle: String? = nil
+    var onCloseContext: (() -> Void)? = nil
+    var isFavorite = false
+    var onToggleFavorite: (() -> Void)? = nil
     let onSelectPlayer: (MatchPlayer) -> Void
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 16) {
-                FieldLabel("Spelaröversikt")
+                HStack(spacing: 12) {
+                    FieldLabel("Spelaröversikt")
+
+                    Spacer(minLength: 0)
+
+                    if let onToggleFavorite, player != nil {
+                        Button(action: onToggleFavorite) {
+                            Label(isFavorite ? "Favorit" : "Lägg till favorit", systemImage: isFavorite ? "star.fill" : "star")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(isFavorite ? AppColors.primaryStrong : AppColors.badgeText)
+                                .padding(.horizontal, 10)
+                                .frame(height: 28)
+                                .background(isFavorite ? AppColors.badgeBackground : AppColors.neutralBadgeBackground)
+                                .clipShape(Capsule())
+                                .overlay {
+                                    Capsule()
+                                        .stroke(isFavorite ? AppColors.primary.opacity(0.65) : AppColors.fieldBorder, lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .help(isFavorite ? "Ta bort från favoriter" : "Lägg till i favoriter")
+                    }
+
+                    if let contextTitle, let onCloseContext {
+                        Button(action: onCloseContext) {
+                            Label(contextTitle, systemImage: "arrow.uturn.backward")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(AppColors.primaryStrong)
+                                .padding(.horizontal, 10)
+                                .frame(height: 28)
+                                .background(AppColors.badgeBackground)
+                                .clipShape(Capsule())
+                                .overlay {
+                                    Capsule()
+                                        .stroke(AppColors.primary.opacity(0.65), lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .help(contextTitle)
+                    }
+                }
 
                 if let player {
                     let stats = profile?.stats ?? fallbackStats(for: player)
@@ -1710,8 +2092,10 @@ struct PlayerComparisonPanel: View {
     let playerA: RankedPlayer?
     let playerB: RankedPlayer?
     let comparison: PlayerComparison?
+    let marketMatch: OddsetMatch?
     let isLoading: Bool
     let surface: TennisSurface
+    let onOpenPlayer: (PlayerDashboardStats) -> Void
     @State private var selectedRange: RankingHistoryRange = .twoYears
 
     var body: some View {
@@ -1721,8 +2105,35 @@ struct PlayerComparisonPanel: View {
 
                 if playerA != nil && playerB != nil {
                     ComparisonTitleBar(playerAName: playerAStats.name, playerBName: playerBStats.name)
-                    ComparisonPlayerProfileBlock(stats: playerAStats, surface: surface)
-                    ComparisonPlayerProfileBlock(stats: playerBStats, surface: surface)
+                    if isLoading {
+                        HStack(spacing: 9) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Läser spelarprofiler, ranking och tidigare möten...")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(AppColors.badgeText)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(AppColors.badgeBackground.opacity(0.72))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(AppColors.primary.opacity(0.42), lineWidth: 1)
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                    ComparisonPlayerProfileBlock(stats: playerAStats, surface: surface, onOpen: onOpenPlayer)
+                    ComparisonPlayerProfileBlock(stats: playerBStats, surface: surface, onOpen: onOpenPlayer)
+                    PlayerComparisonOddsPanel(
+                        playerA: playerAStats,
+                        playerB: playerBStats,
+                        comparison: comparison,
+                        marketMatch: marketMatch,
+                        surface: surface,
+                        isLoading: isLoading
+                    )
                     ComparisonRankingPanel(
                         playerAName: playerAStats.name,
                         playerBName: playerBStats.name,
@@ -1742,6 +2153,7 @@ struct PlayerComparisonPanel: View {
         .scrollIndicators(.visible)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppColors.panelBackground)
+        .animation(.easeInOut(duration: 0.2), value: isLoading)
     }
 
     private func filteredHistory(_ history: [RankingHistoryPoint]) -> [RankingHistoryPoint] {
@@ -1808,6 +2220,78 @@ struct PlayerComparisonPanel: View {
     }
 }
 
+struct PlayerComparisonOddsPanel: View {
+    let playerA: PlayerDashboardStats
+    let playerB: PlayerDashboardStats
+    let comparison: PlayerComparison?
+    let marketMatch: OddsetMatch?
+    let surface: TennisSurface
+    let isLoading: Bool
+
+    private var codexOdds: CodexOdds? {
+        CodexOdds(playerA: playerA, playerB: playerB, surface: surface)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                FieldLabel("Odds")
+                Spacer()
+                if marketMatch == nil {
+                    Text("Oddset visas när paret finns live eller kommande")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(AppColors.caption)
+                }
+            }
+
+            VStack(spacing: 0) {
+                MatchOddsHeaderRow()
+                MatchOddsRow(
+                    name: playerA.name,
+                    oddset: marketOdds(for: playerA),
+                    oddsetOpponent: marketOdds(for: playerB),
+                    ta: comparison?.taA,
+                    taOpponent: comparison?.taB,
+                    mp: comparison?.mpA,
+                    mpOpponent: comparison?.mpB,
+                    codex: codexOdds?.oddsA,
+                    codexOpponent: codexOdds?.oddsB
+                )
+                MatchOddsRow(
+                    name: playerB.name,
+                    oddset: marketOdds(for: playerB),
+                    oddsetOpponent: marketOdds(for: playerA),
+                    ta: comparison?.taB,
+                    taOpponent: comparison?.taA,
+                    mp: comparison?.mpB,
+                    mpOpponent: comparison?.mpA,
+                    codex: codexOdds?.oddsB,
+                    codexOpponent: codexOdds?.oddsA
+                )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
+            }
+            .opacity(isLoading && comparison == nil ? 0.72 : 1)
+        }
+    }
+
+    private func marketOdds(for player: PlayerDashboardStats) -> Double? {
+        guard let marketMatch else { return nil }
+        if samePlayer(marketMatch.playerA, player) { return marketMatch.playerA.odds }
+        if samePlayer(marketMatch.playerB, player) { return marketMatch.playerB.odds }
+        return nil
+    }
+
+    private func samePlayer(_ matchPlayer: MatchPlayer, _ player: PlayerDashboardStats) -> Bool {
+        if let id = matchPlayer.id, id.caseInsensitiveCompare(player.id) == .orderedSame { return true }
+        return matchPlayer.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            == player.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
 struct PlayerWorkspaceInlineHeader: View {
     let player: RankedPlayer
     let stats: PlayerDashboardStats?
@@ -1866,6 +2350,7 @@ struct ComparisonTitleBar: View {
 struct ComparisonPlayerProfileBlock: View {
     let stats: PlayerDashboardStats
     let surface: TennisSurface
+    var onOpen: ((PlayerDashboardStats) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1873,10 +2358,28 @@ struct ComparisonPlayerProfileBlock: View {
                 CountryBadge(country: stats.country)
                     .frame(width: 24, height: 24)
 
-                Text(headerTitle)
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(AppColors.heading)
-                    .lineLimit(1)
+                if let onOpen {
+                    Button {
+                        onOpen(stats)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(headerTitle)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(AppColors.heading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Öppna spelaröversikt för \(stats.name)")
+                } else {
+                    Text(headerTitle)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(AppColors.heading)
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 2)
 
@@ -2354,13 +2857,14 @@ struct MatchOverviewPanel: View {
     let dashboard: MatchDashboard?
     let isLoading: Bool
     let selectedSurface: TennisSurface
+    let onOpenPlayer: (PlayerDashboardStats) -> Void
     @State private var selectedRange: RankingHistoryRange = .twoYears
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             ComparisonTitleBar(playerAName: playerAStats.name, playerBName: playerBStats.name)
-            ComparisonPlayerProfileBlock(stats: playerAStats, surface: dashboard?.surface ?? selectedSurface)
-            ComparisonPlayerProfileBlock(stats: playerBStats, surface: dashboard?.surface ?? selectedSurface)
+            ComparisonPlayerProfileBlock(stats: playerAStats, surface: dashboard?.surface ?? selectedSurface, onOpen: onOpenPlayer)
+            ComparisonPlayerProfileBlock(stats: playerBStats, surface: dashboard?.surface ?? selectedSurface, onOpen: onOpenPlayer)
             MatchOddsColumns(match: match, dashboard: dashboard)
             ComparisonRankingPanel(
                 playerAName: playerAStats.name,

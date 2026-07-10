@@ -1,5 +1,45 @@
 # Codex Context
 
+## Handoff July 10, 2026
+
+Match Point has found a strong personal workflow around `Favoriter`. Preserve
+this as a product core and resist adding broad navigation until real use shows
+what is missing.
+
+Current main navigation pills are `Matcher`, `Spelare`, and `Favoriter`.
+The older `Jämför` mode remains available through `Cmd+3`, but its visible pill
+was removed because the favorite workflow supersedes it for normal use.
+`Favoriter` is available through `Cmd+4`.
+
+Favorite workflow:
+
+- Players are starred from any player overview and persisted locally in
+  `UserDefaults`.
+- Clicking a favorite row marks it for comparison. The two most recently
+  selected players remain marked; selecting a third replaces the oldest.
+- Comparison starts automatically as soon as two players are marked. There is
+  intentionally no extra `JÄMFÖR` button and no A/B terminology.
+- Clicking the player name opens drill-down in the right panel. Hover color and
+  a pointing cursor communicate that the name is a link; the rest of the row
+  is the comparison selection target.
+- Removing a favorite is a two-step inline action: the star animates into a red
+  `Ta bort` button, requires a second click, and resets after three seconds.
+
+The favorite comparison reuses the dense right-side comparison surface:
+profiles, ranking history, and previous meetings. It now also shows hypothetical
+odds for arbitrary player pairs:
+
+- `TA`: Tennis Abstract-derived odds.
+- `MP`: Match Point database model odds.
+- `Codex`: the local Swift direction model.
+- `Oddset`: shown only when the selected pair matches an actual current live or
+  upcoming Oddset match; otherwise the market column remains empty.
+
+Player-name drill-down from match and comparison contexts stays inside the
+right panel. The left list, selected match/mode, and navigation history remain
+intact. `Spelare` is the place to begin a database-wide player search, not the
+mandatory destination for every player click.
+
 ## Handoff July 9, 2026
 
 Latest product/design state: Magnus is undecided about the best navigation

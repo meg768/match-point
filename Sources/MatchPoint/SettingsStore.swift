@@ -13,6 +13,7 @@ enum SettingsStore {
     private static let navigatorPanelWidthKey = "ui.navigatorPanelWidth"
     private static let matchPanelWidthKey = "ui.matchPanelWidth"
     private static let modePanelWidthKeyPrefix = "ui.modePanelWidth"
+    private static let favoritePlayersKey = "players.favorites"
 
     static func loadDatabaseSettings() -> DatabaseSettings {
         let env = loadEnvironment()
@@ -125,6 +126,25 @@ enum SettingsStore {
 
     static func save(navigatorPanelWidth: CGFloat) {
         UserDefaults.standard.set(Double(navigatorPanelWidth), forKey: navigatorPanelWidthKey)
+    }
+
+    static func loadFavoritePlayers() -> [RankedPlayer] {
+        guard
+            let data = UserDefaults.standard.data(forKey: favoritePlayersKey),
+            let players = try? JSONDecoder().decode([RankedPlayer].self, from: data)
+        else {
+            return []
+        }
+
+        return players
+    }
+
+    static func save(favoritePlayers: [RankedPlayer]) {
+        guard let data = try? JSONEncoder().encode(favoritePlayers) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: favoritePlayersKey)
     }
 
     private static func loadEnvironment() -> [String: String] {

@@ -346,6 +346,10 @@ struct PlayerComparison: Equatable {
     let headToHeadWinsA: Int
     let headToHeadWinsB: Int
     let headToHeadMatches: [HeadToHeadMatch]
+    let taA: Double?
+    let taB: Double?
+    let mpA: Double?
+    let mpB: Double?
 }
 
 enum ComparisonSlot {
@@ -437,7 +441,7 @@ extension MatchPlayer {
     }
 }
 
-struct RankedPlayer: Identifiable, Equatable {
+struct RankedPlayer: Identifiable, Equatable, Codable {
     let player: String
     let name: String
     let country: String?

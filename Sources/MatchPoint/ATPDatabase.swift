@@ -238,6 +238,8 @@ struct ATPDatabase {
             let rankingHistoryB = try await loadRankingHistory(name: nameB, on: connection)
             let headToHead = try await loadHeadToHead(playerA: nameA, playerB: nameB, on: connection)
             let headToHeadMatches = try await loadHeadToHeadMatches(playerA: nameA, playerB: nameB, on: connection)
+            let taOdds = try? await loadTennisAbstractOdds(playerA: nameA, playerB: nameB, surface: surface)
+            let mpOdds = try? await loadMPOdds(playerA: nameA, playerB: nameB, surface: surface, on: connection)
 
             return PlayerComparison(
                 playerA: statsA,
@@ -246,7 +248,11 @@ struct ATPDatabase {
                 rankingHistoryB: rankingHistoryB,
                 headToHeadWinsA: headToHead.playerAWins,
                 headToHeadWinsB: headToHead.playerBWins,
-                headToHeadMatches: headToHeadMatches
+                headToHeadMatches: headToHeadMatches,
+                taA: taOdds?.oddsA,
+                taB: taOdds?.oddsB,
+                mpA: mpOdds?.oddsA,
+                mpB: mpOdds?.oddsB
             )
         }
     }
