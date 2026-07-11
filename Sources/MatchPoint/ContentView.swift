@@ -2307,12 +2307,12 @@ struct PlayerComparisonOddsPanel: View {
     let surface: TennisSurface
     let isLoading: Bool
 
-    private var localCodexOdds: CodexOdds? {
+    private var localGPTOdds: GPTOdds? {
         if let marketMatch {
-            return CodexOdds(playerA: playerA, playerB: playerB, surface: marketMatch.inferredSurface)
+            return GPTOdds(playerA: playerA, playerB: playerB, surface: marketMatch.inferredSurface)
         }
         guard hasActiveRankings else { return nil }
-        return CodexOdds(overallEloPlayerA: playerA, playerB: playerB)
+        return GPTOdds(overallEloPlayerA: playerA, playerB: playerB)
     }
 
     private var hasActiveRankings: Bool {
@@ -2342,8 +2342,8 @@ struct PlayerComparisonOddsPanel: View {
                     oddsetOpponent: marketOdds(for: playerB),
                     ta: hasActiveRankings ? comparison?.taA : nil,
                     taOpponent: hasActiveRankings ? comparison?.taB : nil,
-                    codex: localCodexOdds?.oddsA,
-                    codexOpponent: localCodexOdds?.oddsB
+                    gpt: localGPTOdds?.oddsA,
+                    gptOpponent: localGPTOdds?.oddsB
                 )
                 MatchOddsRow(
                     name: playerB.name,
@@ -2351,8 +2351,8 @@ struct PlayerComparisonOddsPanel: View {
                     oddsetOpponent: marketOdds(for: playerA),
                     ta: hasActiveRankings ? comparison?.taB : nil,
                     taOpponent: hasActiveRankings ? comparison?.taA : nil,
-                    codex: localCodexOdds?.oddsB,
-                    codexOpponent: localCodexOdds?.oddsA
+                    gpt: localGPTOdds?.oddsB,
+                    gptOpponent: localGPTOdds?.oddsA
                 )
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -3157,8 +3157,8 @@ struct MatchOddsColumns: View {
     let dashboard: MatchDashboard?
     private let bankroll = 1_000
 
-    private var localCodexOdds: CodexOdds? {
-        CodexOdds(playerA: dashboard?.playerA, playerB: dashboard?.playerB, surface: dashboard?.surface ?? match.inferredSurface)
+    private var localGPTOdds: GPTOdds? {
+        GPTOdds(playerA: dashboard?.playerA, playerB: dashboard?.playerB, surface: dashboard?.surface ?? match.inferredSurface)
     }
 
     var body: some View {
@@ -3174,8 +3174,8 @@ struct MatchOddsColumns: View {
                         oddsetOpponent: match.playerB.odds,
                         ta: dashboard?.modelA,
                         taOpponent: dashboard?.modelB,
-                        codex: localCodexOdds?.oddsA,
-                        codexOpponent: localCodexOdds?.oddsB
+                        gpt: localGPTOdds?.oddsA,
+                        gptOpponent: localGPTOdds?.oddsB
                     )
                     MatchOddsRow(
                         name: dashboard?.playerB?.name ?? match.playerB.name,
@@ -3183,8 +3183,8 @@ struct MatchOddsColumns: View {
                         oddsetOpponent: match.playerA.odds,
                         ta: dashboard?.modelB,
                         taOpponent: dashboard?.modelA,
-                        codex: localCodexOdds?.oddsB,
-                        codexOpponent: localCodexOdds?.oddsA
+                        gpt: localGPTOdds?.oddsB,
+                        gptOpponent: localGPTOdds?.oddsA
                     )
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -3220,19 +3220,19 @@ struct MatchOddsColumns: View {
                 ),
                 KellyCandidate(
                     playerName: dashboard?.playerA?.name ?? match.playerA.name,
-                    source: "Codex",
+                    source: "GPT",
                     marketOdds: match.playerA.odds,
                     marketOpponentOdds: match.playerB.odds,
-                    modelOdds: localCodexOdds?.oddsA,
-                    modelOpponentOdds: localCodexOdds?.oddsB
+                    modelOdds: localGPTOdds?.oddsA,
+                    modelOpponentOdds: localGPTOdds?.oddsB
                 ),
                 KellyCandidate(
                     playerName: dashboard?.playerB?.name ?? match.playerB.name,
-                    source: "Codex",
+                    source: "GPT",
                     marketOdds: match.playerB.odds,
                     marketOpponentOdds: match.playerA.odds,
-                    modelOdds: localCodexOdds?.oddsB,
-                    modelOpponentOdds: localCodexOdds?.oddsA
+                    modelOdds: localGPTOdds?.oddsB,
+                    modelOpponentOdds: localGPTOdds?.oddsA
                 )
             ]
         )
@@ -3246,7 +3246,7 @@ struct MatchOddsHeaderRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             oddsHeader("Oddset", width: 122, alignment: .trailing)
             oddsHeader("TA", width: 122, alignment: .trailing)
-            oddsHeader("Codex", width: 122, alignment: .trailing)
+            oddsHeader("GPT", width: 122, alignment: .trailing)
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
@@ -3275,8 +3275,8 @@ struct MatchOddsRow: View {
     let oddsetOpponent: Double?
     let ta: Double?
     let taOpponent: Double?
-    let codex: Double?
-    let codexOpponent: Double?
+    let gpt: Double?
+    let gptOpponent: Double?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -3289,7 +3289,7 @@ struct MatchOddsRow: View {
 
             oddsCell(oddset, width: 122)
             oddsCell(ta, edge: edge(model: ta, modelOpponent: taOpponent), width: 122)
-            oddsCell(codex, edge: edge(model: codex, modelOpponent: codexOpponent), width: 122)
+            oddsCell(gpt, edge: edge(model: gpt, modelOpponent: gptOpponent), width: 122)
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
@@ -3345,7 +3345,7 @@ struct MatchOddsRow: View {
     }
 }
 
-private struct CodexOdds {
+private struct GPTOdds {
     let oddsA: Double
     let oddsB: Double
     let probabilityA: Double

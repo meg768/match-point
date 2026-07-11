@@ -27,46 +27,45 @@ Favorite workflow:
 
 The favorite comparison reuses the dense right-side comparison surface:
 profiles, ranking history, and previous meetings. It also shows hypothetical
-Codex odds for arbitrary player pairs. The odds UI intentionally contains three
+GPT odds for arbitrary player pairs. The odds UI intentionally contains three
 sources:
 
 - `Oddset`: shown only when the selected pair matches an actual current
   live or upcoming Oddset match; otherwise the market column remains empty.
 - `TA`: Tennis Abstract-derived odds and Magnus' most trusted baseline.
-- `Codex`: calculated locally in Match Point's Swift code.
+- `GPT`: calculated locally in Match Point's Swift code.
 
 Do not restore an `MP` column or make Match Point depend on database odds
 routines. TA remains an independent external baseline.
 
-Database separation confirmed on 2026-07-10:
+Database/model convergence confirmed on 2026-07-12:
 
-- `atp-service` and Vitel rely on `PLAYER_ODDS`, `PLAYER_STATS`, and the existing
-  `PLAYER_WIN_FACTOR*` routines. Keep that database model unchanged.
-- A short experiment that moved Codex into MariaDB was fully rolled back.
-  `PLAYER_WIN_FACTOR` was restored from the canonical `atp-tennis` SQL file;
-  experimental `PLAYER_WIN_FACTOR_CODEX` and `PLAYER_WIN_FACTOR_LEGACY`
-  functions were removed.
+- `atp-service`, Vitel, and Match Point now expose the same TA-calibrated GPT
+  odds model. The canonical server implementation is `PLAYER_WIN_FACTOR` in
+  `atp-tennis`; Match Point keeps a matching local Swift implementation.
+- The former Vitel model and its factor-specific ELO/form/rating/ranking/HTH
+  functions were retired. `PLAYER_STATS` was also removed.
 - Match Point remains independent: Svenska Spel comes from its local Oddset
-  client, TA comes directly from Tennis Abstract, and Codex is calculated in
+  client, TA comes directly from Tennis Abstract, and GPT is calculated in
   Swift from direct ATP database reads.
-- For a hypothetical favorite H2H with no current match, both TA and Codex use
+- For a hypothetical favorite H2H with no current match, both TA and GPT use
   total ELO only. A separately optimized neutral model using total ELO,
   ranking, last-12 form, and 365-day form was tested but lost to pure total ELO
   on the untouched 2023+ test period (`0.632010` vs `0.631415` log loss and
   `0.220970` vs `0.220601` Brier). Therefore no surface, ranking, or form
   adjustment is used without a real match. If an actual live/upcoming match
-  exists, Codex uses that match's inferred surface and full matchup context.
-- The full match-context Codex model was backtested chronologically on 450,276
+  exists, GPT uses that match's inferred surface and full matchup context.
+- The full match-context GPT model was backtested chronologically on 450,276
   completed matches and optimized on pre-2019 data. On the untouched 2023+
   test period (99,310 oriented examples), it improved log loss from `0.631071`
-  for the previous Codex formula to `0.627236`, and Brier score from `0.220309`
+  for the previous GPT formula to `0.627236`, and Brier score from `0.220309`
   to `0.218889`. Its signals, in descending fitted importance, are total ELO,
   surface ELO, ranking, surface record, last-12 form, and 365-day form. The
   reproducible research tool and generated artifacts live under
   `codex-chat/sandbox/codex-odds-backtest`.
 - After database ELO changed to Tennis Abstract on 2026-07-11, the historical
   reconstruction was linearly calibrated to the current TA scale and the model
-  was regenerated. On the untouched 2023+ test period, TA-calibrated Codex
+  was regenerated. On the untouched 2023+ test period, TA-calibrated GPT
   reached `0.627253` log loss and `0.218899` Brier versus `0.633843` and
   `0.221287` for calibrated overall ELO. This remains an approximation because
   Tennis Abstract does not publish a complete historical ELO snapshot archive.
@@ -123,12 +122,12 @@ Odds/model state:
 - `TA`: Tennis Abstract-derived odds.
 - `MP`: Magnus' own Match Point database model, backed by the database
   `PLAYER_WIN_FACTOR(...)`.
-- `Codex`: local lightweight direction model in Swift. It uses surface ELO
+- `GPT`: local lightweight direction model in Swift. It uses surface ELO
   first, then ranking, current-surface win rate, recent form, and broader form.
   The score is turned into a probability with a sigmoid, clamped to 8-92%, then
   priced with a 5% margin. It is intentionally not trained/backtested yet.
 
-Codex odds weights as currently implemented:
+GPT odds weights as currently implemented:
 
 ```text
 score =
@@ -360,8 +359,8 @@ date (`#3 (2017-11-20)` style), and pro-since. BMI should be rounded, not shown
 with decimals.
 
 `ODDS` is a full-width table with the columns `Namn`, `Oddset`, `TA`, `MP`,
-and `Codex`. `Oddset` is live market odds. `TA` is Tennis Abstract-derived
-odds. `MP` is Magnus' own Match Point model/database odds. `Codex` is Codex' local
+and `GPT`. `Oddset` is live market odds. `TA` is Tennis Abstract-derived
+odds. `MP` is Magnus' own Match Point model/database odds. `GPT` is GPT's local
 lightweight direction model using ELO, rank, surface record, and
 recent form. Positive edge can be shown in the model cells as `(+15%)`; keep
 this quiet and readable, not a betting engine claim.

@@ -98,8 +98,8 @@ struct ATPDatabase {
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil,
-                codexA: nil,
-                codexB: nil
+                gptA: nil,
+                gptB: nil
             )
         }
 
@@ -129,8 +129,8 @@ struct ATPDatabase {
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil,
-                codexA: nil,
-                codexB: nil
+                gptA: nil,
+                gptB: nil
             )
         }
 
@@ -248,8 +248,8 @@ struct ATPDatabase {
                 headToHeadMatches: headToHeadMatches,
                 taA: taOdds?.oddsA,
                 taB: taOdds?.oddsB,
-                codexA: nil,
-                codexB: nil
+                gptA: nil,
+                gptB: nil
             )
         }
     }
