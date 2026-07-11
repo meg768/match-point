@@ -12,8 +12,10 @@ private struct TennisAbstractRatings: Equatable {
     let clay: Double
     let grass: Double
 
-    func rating(for surface: TennisSurface) -> Double {
+    func rating(for surface: TennisSurface?) -> Double {
         switch surface {
+        case nil:
+            return overall
         case .hard:
             return hard
         case .clay:
@@ -33,7 +35,7 @@ actor TennisAbstractOddsClient {
     private var ratingsBySlug: [String: TennisAbstractRatings] = [:]
     private let cacheDuration: TimeInterval = 60 * 60
 
-    func loadOdds(playerA: String, playerB: String, surface: TennisSurface) async throws -> TennisAbstractOdds {
+    func loadOdds(playerA: String, playerB: String, surface: TennisSurface?) async throws -> TennisAbstractOdds {
         let html = try await reportHTML()
         let ratingsA = try ratings(for: playerA, in: html)
         let ratingsB = try ratings(for: playerB, in: html)

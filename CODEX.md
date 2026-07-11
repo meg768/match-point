@@ -26,14 +26,50 @@ Favorite workflow:
   `Ta bort` button, requires a second click, and resets after three seconds.
 
 The favorite comparison reuses the dense right-side comparison surface:
-profiles, ranking history, and previous meetings. It now also shows hypothetical
-odds for arbitrary player pairs:
+profiles, ranking history, and previous meetings. It also shows hypothetical
+Codex odds for arbitrary player pairs. The odds UI intentionally contains three
+sources:
 
-- `TA`: Tennis Abstract-derived odds.
-- `MP`: Match Point database model odds.
-- `Codex`: the local Swift direction model.
-- `Oddset`: shown only when the selected pair matches an actual current live or
-  upcoming Oddset match; otherwise the market column remains empty.
+- `Oddset`: shown only when the selected pair matches an actual current
+  live or upcoming Oddset match; otherwise the market column remains empty.
+- `TA`: Tennis Abstract-derived odds and Magnus' most trusted baseline.
+- `Codex`: calculated locally in Match Point's Swift code.
+
+Do not restore an `MP` column or make Match Point depend on database odds
+routines. TA remains an independent external baseline.
+
+Database separation confirmed on 2026-07-10:
+
+- `atp-service` and Vitel rely on `PLAYER_ODDS`, `PLAYER_STATS`, and the existing
+  `PLAYER_WIN_FACTOR*` routines. Keep that database model unchanged.
+- A short experiment that moved Codex into MariaDB was fully rolled back.
+  `PLAYER_WIN_FACTOR` was restored from the canonical `atp-tennis` SQL file;
+  experimental `PLAYER_WIN_FACTOR_CODEX` and `PLAYER_WIN_FACTOR_LEGACY`
+  functions were removed.
+- Match Point remains independent: Svenska Spel comes from its local Oddset
+  client, TA comes directly from Tennis Abstract, and Codex is calculated in
+  Swift from direct ATP database reads.
+- For a hypothetical favorite H2H with no current match, both TA and Codex use
+  total ELO only. A separately optimized neutral model using total ELO,
+  ranking, last-12 form, and 365-day form was tested but lost to pure total ELO
+  on the untouched 2023+ test period (`0.632010` vs `0.631415` log loss and
+  `0.220970` vs `0.220601` Brier). Therefore no surface, ranking, or form
+  adjustment is used without a real match. If an actual live/upcoming match
+  exists, Codex uses that match's inferred surface and full matchup context.
+- The full match-context Codex model was backtested chronologically on 450,276
+  completed matches and optimized on pre-2019 data. On the untouched 2023+
+  test period (99,310 oriented examples), it improved log loss from `0.631071`
+  for the previous Codex formula to `0.627236`, and Brier score from `0.220309`
+  to `0.218889`. Its signals, in descending fitted importance, are total ELO,
+  surface ELO, ranking, surface record, last-12 form, and 365-day form. The
+  reproducible research tool and generated artifacts live under
+  `codex-chat/sandbox/codex-odds-backtest`.
+- After database ELO changed to Tennis Abstract on 2026-07-11, the historical
+  reconstruction was linearly calibrated to the current TA scale and the model
+  was regenerated. On the untouched 2023+ test period, TA-calibrated Codex
+  reached `0.627253` log loss and `0.218899` Brier versus `0.633843` and
+  `0.221287` for calibrated overall ELO. This remains an approximation because
+  Tennis Abstract does not publish a complete historical ELO snapshot archive.
 
 Player-name drill-down from match and comparison contexts stays inside the
 right panel. The left list, selected match/mode, and navigation history remain

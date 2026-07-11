@@ -59,7 +59,8 @@ struct ContentView: View {
                 onOpenMatchPlayer: openPlayer,
                 onCloseContextPlayer: closeContextPlayer,
                 onToggleFavorite: toggleFavorite,
-                onToggleFavoriteSelection: toggleFavoriteSelection
+                onToggleFavoriteSelection: toggleFavoriteSelection,
+                onClearFavorites: clearFavorites
             )
             .padding([.horizontal, .top], 8)
             .padding(.bottom, 8)
@@ -395,6 +396,16 @@ struct ContentView: View {
         }
     }
 
+    private func clearFavorites() {
+        favoritePlayers = []
+        selectedFavoritePlayers = []
+        comparedFavoritePlayers = []
+        contextualPlayer = nil
+        store.clearComparePlayer(.playerA)
+        store.clearComparePlayer(.playerB)
+        SettingsStore.save(favoritePlayers: [])
+    }
+
 }
 
 struct ModePillBar: View {
@@ -585,6 +596,7 @@ struct MatchPointSplitView: View {
     let onCloseContextPlayer: () -> Void
     let onToggleFavorite: (RankedPlayer) -> Void
     let onToggleFavoriteSelection: (RankedPlayer) -> Void
+    let onClearFavorites: () -> Void
 
     private let dividerWidth: CGFloat = 14
     private let minListWidth: CGFloat = 280
@@ -621,7 +633,8 @@ struct MatchPointSplitView: View {
                     onSwapComparePlayers: onSwapComparePlayers,
                     onOpenFavorite: onOpenFavorite,
                     onToggleFavorite: onToggleFavorite,
-                    onToggleFavoriteSelection: onToggleFavoriteSelection
+                    onToggleFavoriteSelection: onToggleFavoriteSelection,
+                    onClearFavorites: onClearFavorites
                 )
                 .frame(width: listWidth)
                 .frame(height: availableHeight, alignment: .top)
@@ -864,6 +877,7 @@ struct WorkspaceListPanel: View {
     let onOpenFavorite: (RankedPlayer) -> Void
     let onToggleFavorite: (RankedPlayer) -> Void
     let onToggleFavoriteSelection: (RankedPlayer) -> Void
+    let onClearFavorites: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -900,7 +914,8 @@ struct WorkspaceListPanel: View {
                     isLoadingComparison: isLoadingComparison,
                     onOpenPlayer: onOpenFavorite,
                     onToggleSelection: onToggleFavoriteSelection,
-                    onRemoveFavorite: onToggleFavorite
+                    onRemoveFavorite: onToggleFavorite,
+                    onClearFavorites: onClearFavorites
                 )
             case .databaseLog:
                 DataLogListContent(entries: dataLog)
@@ -1007,17 +1022,51 @@ struct FavoritePickerPanelContent: View {
     let onOpenPlayer: (RankedPlayer) -> Void
     let onToggleSelection: (RankedPlayer) -> Void
     let onRemoveFavorite: (RankedPlayer) -> Void
+    let onClearFavorites: () -> Void
+    @State private var isConfirmingClear = false
+    @State private var clearConfirmationID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Favoriter")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(AppColors.heading)
-                    Text(isLoadingComparison ? "Läser jämförelse..." : selectionTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(isLoadingComparison ? AppColors.primaryStrong : AppColors.badgeText)
+                HStack(alignment: .top, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Favoriter")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(AppColors.heading)
+                        Text(isLoadingComparison ? "Läser jämförelse..." : selectionTitle)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(isLoadingComparison ? AppColors.primaryStrong : AppColors.badgeText)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if !players.isEmpty {
+                        Button(action: handleClear) {
+                            ZStack {
+                                Capsule()
+                                    .fill(AppColors.neutralBadgeBackground)
+                                Capsule()
+                                    .stroke(AppColors.panelBorder.opacity(0.72), lineWidth: 1)
+
+                                if isConfirmingClear {
+                                    Image(systemName: "trash.fill")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundStyle(AppColors.badgeText)
+                                        .transition(.scale.combined(with: .opacity))
+                                } else {
+                                    Text("RENSA")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(AppColors.badgeText)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                            }
+                            .frame(width: isConfirmingClear ? 32 : 58, height: 26)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isConfirmingClear ? "Klicka igen för att ta bort alla favoriter" : "Ta bort alla favoriter")
+                        .animation(.easeInOut(duration: 0.2), value: isConfirmingClear)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1034,9 +1083,18 @@ struct FavoritePickerPanelContent: View {
                         FavoritePlayerRow(
                             player: player,
                             isSelected: selectedPlayers.contains { $0.player == player.player },
-                            onOpen: { onOpenPlayer(player) },
-                            onToggleSelection: { onToggleSelection(player) },
-                            onRemove: { onRemoveFavorite(player) }
+                            onOpen: {
+                                cancelClearConfirmation()
+                                onOpenPlayer(player)
+                            },
+                            onToggleSelection: {
+                                cancelClearConfirmation()
+                                onToggleSelection(player)
+                            },
+                            onRemove: {
+                                cancelClearConfirmation()
+                                onRemoveFavorite(player)
+                            }
                         )
                     }
                 }
@@ -1050,6 +1108,27 @@ struct FavoritePickerPanelContent: View {
         if players.isEmpty { return "Stjärnmarkera en spelare" }
         if selectedPlayers.isEmpty { return "Markera två av \(players.count) spelare" }
         return "\(selectedPlayers.count) av 2 markerade"
+    }
+
+    private func handleClear() {
+        if isConfirmingClear {
+            cancelClearConfirmation()
+            onClearFavorites()
+        } else {
+            let confirmationID = UUID()
+            clearConfirmationID = confirmationID
+            isConfirmingClear = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(3))
+                guard clearConfirmationID == confirmationID else { return }
+                cancelClearConfirmation()
+            }
+        }
+    }
+
+    private func cancelClearConfirmation() {
+        isConfirmingClear = false
+        clearConfirmationID = nil
     }
 }
 
@@ -2228,8 +2307,17 @@ struct PlayerComparisonOddsPanel: View {
     let surface: TennisSurface
     let isLoading: Bool
 
-    private var codexOdds: CodexOdds? {
-        CodexOdds(playerA: playerA, playerB: playerB, surface: surface)
+    private var localCodexOdds: CodexOdds? {
+        if let marketMatch {
+            return CodexOdds(playerA: playerA, playerB: playerB, surface: marketMatch.inferredSurface)
+        }
+        guard hasActiveRankings else { return nil }
+        return CodexOdds(overallEloPlayerA: playerA, playerB: playerB)
+    }
+
+    private var hasActiveRankings: Bool {
+        guard let rankA = playerA.rank, let rankB = playerB.rank else { return false }
+        return rankA > 0 && rankB > 0
     }
 
     var body: some View {
@@ -2238,7 +2326,9 @@ struct PlayerComparisonOddsPanel: View {
                 FieldLabel("Odds")
                 Spacer()
                 if marketMatch == nil {
-                    Text("Oddset visas när paret finns live eller kommande")
+                    Text(hasActiveRankings
+                         ? "Hypotetisk H2H · total ELO utan underlag"
+                         : "Odds kräver två aktiva rankade spelare")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(AppColors.caption)
                 }
@@ -2250,23 +2340,19 @@ struct PlayerComparisonOddsPanel: View {
                     name: playerA.name,
                     oddset: marketOdds(for: playerA),
                     oddsetOpponent: marketOdds(for: playerB),
-                    ta: comparison?.taA,
-                    taOpponent: comparison?.taB,
-                    mp: comparison?.mpA,
-                    mpOpponent: comparison?.mpB,
-                    codex: codexOdds?.oddsA,
-                    codexOpponent: codexOdds?.oddsB
+                    ta: hasActiveRankings ? comparison?.taA : nil,
+                    taOpponent: hasActiveRankings ? comparison?.taB : nil,
+                    codex: localCodexOdds?.oddsA,
+                    codexOpponent: localCodexOdds?.oddsB
                 )
                 MatchOddsRow(
                     name: playerB.name,
                     oddset: marketOdds(for: playerB),
                     oddsetOpponent: marketOdds(for: playerA),
-                    ta: comparison?.taB,
-                    taOpponent: comparison?.taA,
-                    mp: comparison?.mpB,
-                    mpOpponent: comparison?.mpA,
-                    codex: codexOdds?.oddsB,
-                    codexOpponent: codexOdds?.oddsA
+                    ta: hasActiveRankings ? comparison?.taB : nil,
+                    taOpponent: hasActiveRankings ? comparison?.taA : nil,
+                    codex: localCodexOdds?.oddsB,
+                    codexOpponent: localCodexOdds?.oddsA
                 )
             }
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -3071,7 +3157,7 @@ struct MatchOddsColumns: View {
     let dashboard: MatchDashboard?
     private let bankroll = 1_000
 
-    private var codexOdds: CodexOdds? {
+    private var localCodexOdds: CodexOdds? {
         CodexOdds(playerA: dashboard?.playerA, playerB: dashboard?.playerB, surface: dashboard?.surface ?? match.inferredSurface)
     }
 
@@ -3088,10 +3174,8 @@ struct MatchOddsColumns: View {
                         oddsetOpponent: match.playerB.odds,
                         ta: dashboard?.modelA,
                         taOpponent: dashboard?.modelB,
-                        mp: dashboard?.mpA,
-                        mpOpponent: dashboard?.mpB,
-                        codex: codexOdds?.oddsA,
-                        codexOpponent: codexOdds?.oddsB
+                        codex: localCodexOdds?.oddsA,
+                        codexOpponent: localCodexOdds?.oddsB
                     )
                     MatchOddsRow(
                         name: dashboard?.playerB?.name ?? match.playerB.name,
@@ -3099,10 +3183,8 @@ struct MatchOddsColumns: View {
                         oddsetOpponent: match.playerA.odds,
                         ta: dashboard?.modelB,
                         taOpponent: dashboard?.modelA,
-                        mp: dashboard?.mpB,
-                        mpOpponent: dashboard?.mpA,
-                        codex: codexOdds?.oddsB,
-                        codexOpponent: codexOdds?.oddsA
+                        codex: localCodexOdds?.oddsB,
+                        codexOpponent: localCodexOdds?.oddsA
                     )
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -3138,35 +3220,19 @@ struct MatchOddsColumns: View {
                 ),
                 KellyCandidate(
                     playerName: dashboard?.playerA?.name ?? match.playerA.name,
-                    source: "MP",
-                    marketOdds: match.playerA.odds,
-                    marketOpponentOdds: match.playerB.odds,
-                    modelOdds: dashboard?.mpA,
-                    modelOpponentOdds: dashboard?.mpB
-                ),
-                KellyCandidate(
-                    playerName: dashboard?.playerB?.name ?? match.playerB.name,
-                    source: "MP",
-                    marketOdds: match.playerB.odds,
-                    marketOpponentOdds: match.playerA.odds,
-                    modelOdds: dashboard?.mpB,
-                    modelOpponentOdds: dashboard?.mpA
-                ),
-                KellyCandidate(
-                    playerName: dashboard?.playerA?.name ?? match.playerA.name,
                     source: "Codex",
                     marketOdds: match.playerA.odds,
                     marketOpponentOdds: match.playerB.odds,
-                    modelOdds: codexOdds?.oddsA,
-                    modelOpponentOdds: codexOdds?.oddsB
+                    modelOdds: localCodexOdds?.oddsA,
+                    modelOpponentOdds: localCodexOdds?.oddsB
                 ),
                 KellyCandidate(
                     playerName: dashboard?.playerB?.name ?? match.playerB.name,
                     source: "Codex",
                     marketOdds: match.playerB.odds,
                     marketOpponentOdds: match.playerA.odds,
-                    modelOdds: codexOdds?.oddsB,
-                    modelOpponentOdds: codexOdds?.oddsA
+                    modelOdds: localCodexOdds?.oddsB,
+                    modelOpponentOdds: localCodexOdds?.oddsA
                 )
             ]
         )
@@ -3178,9 +3244,8 @@ struct MatchOddsHeaderRow: View {
         HStack(spacing: 10) {
             oddsHeader("Namn")
                 .frame(maxWidth: .infinity, alignment: .leading)
-            oddsHeader("Oddset", width: 96, alignment: .trailing)
+            oddsHeader("Oddset", width: 122, alignment: .trailing)
             oddsHeader("TA", width: 122, alignment: .trailing)
-            oddsHeader("MP", width: 122, alignment: .trailing)
             oddsHeader("Codex", width: 122, alignment: .trailing)
         }
         .padding(.horizontal, 12)
@@ -3210,8 +3275,6 @@ struct MatchOddsRow: View {
     let oddsetOpponent: Double?
     let ta: Double?
     let taOpponent: Double?
-    let mp: Double?
-    let mpOpponent: Double?
     let codex: Double?
     let codexOpponent: Double?
 
@@ -3224,9 +3287,8 @@ struct MatchOddsRow: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            oddsCell(oddset, width: 96)
+            oddsCell(oddset, width: 122)
             oddsCell(ta, edge: edge(model: ta, modelOpponent: taOpponent), width: 122)
-            oddsCell(mp, edge: edge(model: mp, modelOpponent: mpOpponent), width: 122)
             oddsCell(codex, edge: edge(model: codex, modelOpponent: codexOpponent), width: 122)
         }
         .padding(.horizontal, 12)
@@ -3288,14 +3350,19 @@ private struct CodexOdds {
     let oddsB: Double
     let probabilityA: Double
 
-    init?(playerA: PlayerDashboardStats?, playerB: PlayerDashboardStats?, surface: TennisSurface) {
-        guard let playerA, let playerB else {
-            return nil
-        }
+    private static let weights = [0.308259581872, 0.271303033199, 0.226042701631, 0.067860094189, 0.066165906183, 0.031416125989]
+    private static let standardDeviations = [0.480841409542, 0.453431590526, 1.032929982385, 0.218879304230, 0.253832178694, 0.211008586769]
+    private static let bias = 0.0000253868667645
 
-        let score = Self.score(player: playerA, opponent: playerB, surface: surface)
-            - Self.score(player: playerB, opponent: playerA, surface: surface)
-        let probabilityA = min(0.92, max(0.08, 1 / (1 + exp(-score))))
+    init?(playerA: PlayerDashboardStats?, playerB: PlayerDashboardStats?, surface: TennisSurface) {
+        guard let playerA, let playerB else { return nil }
+
+        let features = Self.features(playerA: playerA, playerB: playerB, surface: surface)
+        let score = zip(Self.weights.indices, Self.weights).reduce(Self.bias) { result, pair in
+            let (index, weight) = pair
+            return result + weight * (features[index] / Self.standardDeviations[index])
+        }
+        let probabilityA = min(0.995, max(0.005, 1 / (1 + exp(-score))))
         let probabilityB = 1 - probabilityA
 
         self.probabilityA = probabilityA
@@ -3303,51 +3370,47 @@ private struct CodexOdds {
         oddsB = Self.pricedOdds(probabilityB)
     }
 
-    private static func score(player: PlayerDashboardStats, opponent: PlayerDashboardStats, surface: TennisSurface) -> Double {
-        var score = 0.0
+    init?(overallEloPlayerA playerA: PlayerDashboardStats?, playerB: PlayerDashboardStats?) {
+        guard let eloA = playerA?.eloRank, let eloB = playerB?.eloRank else { return nil }
 
-        if let playerElo = elo(for: player, surface: surface), let opponentElo = elo(for: opponent, surface: surface) {
-            score += Double(playerElo - opponentElo) / 520 * 0.62
+        let probabilityA = 1 / (1 + pow(10, Double(eloB - eloA) / 400))
+        let probabilityB = 1 - probabilityA
+
+        self.probabilityA = probabilityA
+        oddsA = Self.pricedOdds(probabilityA)
+        oddsB = Self.pricedOdds(probabilityB)
+    }
+
+    private static func features(playerA: PlayerDashboardStats, playerB: PlayerDashboardStats, surface: TennisSurface) -> [Double] {
+        let overallElo = Double((playerA.eloRank ?? 1500) - (playerB.eloRank ?? 1500)) / 400
+        let surfaceElo = Double((elo(for: playerA, surface: surface) ?? 1500) - (elo(for: playerB, surface: surface) ?? 1500)) / 400
+        let ranking: Double
+        if let rankA = playerA.rank, let rankB = playerB.rank, rankA > 0, rankB > 0 {
+            ranking = log(Double(rankB) / Double(rankA))
+        } else {
+            ranking = 0
         }
 
-        if let playerRank = player.rank, let opponentRank = opponent.rank, playerRank > 0, opponentRank > 0 {
-            score += log(Double(opponentRank) / Double(playerRank)) * 0.28
-        }
-
-        if let playerSurface = ratio(wins: player.surfaceWins, matches: player.surfaceMatches),
-           let opponentSurface = ratio(wins: opponent.surfaceWins, matches: opponent.surfaceMatches) {
-            score += (playerSurface - opponentSurface) * 0.38
-        }
-
-        if let playerRecent = ratio(wins: player.recentWins, matches: player.recentMatches),
-           let opponentRecent = ratio(wins: opponent.recentWins, matches: opponent.recentMatches) {
-            score += (playerRecent - opponentRecent) * 0.22
-        }
-
-        if let playerForm = ratio(wins: player.formWins, matches: player.formMatches),
-           let opponentForm = ratio(wins: opponent.formWins, matches: opponent.formMatches) {
-            score += (playerForm - opponentForm) * 0.18
-        }
-
-        return score
+        return [
+            overallElo,
+            surfaceElo,
+            ranking,
+            ratio(wins: playerA.surfaceWins, matches: playerA.surfaceMatches) - ratio(wins: playerB.surfaceWins, matches: playerB.surfaceMatches),
+            ratio(wins: playerA.formWins, matches: playerA.formMatches) - ratio(wins: playerB.formWins, matches: playerB.formMatches),
+            ratio(wins: playerA.recentWins, matches: playerA.recentMatches) - ratio(wins: playerB.recentWins, matches: playerB.recentMatches)
+        ]
     }
 
     private static func elo(for player: PlayerDashboardStats, surface: TennisSurface) -> Int? {
         switch surface {
-        case .grass:
-            return player.grassElo ?? player.eloRank
-        case .clay:
-            return player.clayElo ?? player.eloRank
-        case .hard:
-            return player.hardElo ?? player.eloRank
+        case .grass: return player.grassElo ?? player.eloRank
+        case .clay: return player.clayElo ?? player.eloRank
+        case .hard: return player.hardElo ?? player.eloRank
         }
     }
 
-    private static func ratio(wins: Int, matches: Int) -> Double? {
-        guard matches > 0 else {
-            return nil
-        }
-
+    private static func ratio(wins: Int, matches: Int) -> Double {
+        guard matches > 0 else { return 0.5 }
         return Double(wins) / Double(matches)
     }
 
@@ -4679,6 +4742,16 @@ struct CountryBadge: View {
     private var flagImage: NSImage? {
         guard countryCode != "--" else {
             return nil
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            let url = resourceURL
+                .appendingPathComponent("Flags", isDirectory: true)
+                .appendingPathComponent("\(countryCode).svg")
+
+            if let image = NSImage(contentsOf: url) {
+                return image
+            }
         }
 
         if let url = Bundle.main.url(forResource: countryCode, withExtension: "svg", subdirectory: "Flags") {

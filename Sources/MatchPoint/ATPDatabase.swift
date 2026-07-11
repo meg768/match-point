@@ -84,7 +84,6 @@ struct ATPDatabase {
             let rankingHistoryB = try await loadRankingHistory(name: match.playerB.name, on: connection)
             let headToHead = try await loadHeadToHead(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
             let headToHeadMatches = try await loadHeadToHeadMatches(playerA: match.playerA.name, playerB: match.playerB.name, on: connection)
-            let mpOdds = try? await loadMPOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, on: connection)
 
             return MatchDashboard(
                 matchID: match.id,
@@ -99,8 +98,8 @@ struct ATPDatabase {
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil,
-                mpA: mpOdds?.oddsA,
-                mpB: mpOdds?.oddsB
+                codexA: nil,
+                codexB: nil
             )
         }
 
@@ -116,7 +115,6 @@ struct ATPDatabase {
         let dashboard = try await withConnection { connection in
             let playerA = try await loadPlayerStats(name: match.playerA.name, surface: surface, on: connection)
             let playerB = try await loadPlayerStats(name: match.playerB.name, surface: surface, on: connection)
-            let mpOdds = try? await loadMPOdds(playerA: match.playerA.name, playerB: match.playerB.name, surface: surface, on: connection)
 
             return MatchDashboard(
                 matchID: match.id,
@@ -131,8 +129,8 @@ struct ATPDatabase {
                 modelA: nil,
                 modelB: nil,
                 winFactorA: nil,
-                mpA: mpOdds?.oddsA,
-                mpB: mpOdds?.oddsB
+                codexA: nil,
+                codexB: nil
             )
         }
 
@@ -238,8 +236,7 @@ struct ATPDatabase {
             let rankingHistoryB = try await loadRankingHistory(name: nameB, on: connection)
             let headToHead = try await loadHeadToHead(playerA: nameA, playerB: nameB, on: connection)
             let headToHeadMatches = try await loadHeadToHeadMatches(playerA: nameA, playerB: nameB, on: connection)
-            let taOdds = try? await loadTennisAbstractOdds(playerA: nameA, playerB: nameB, surface: surface)
-            let mpOdds = try? await loadMPOdds(playerA: nameA, playerB: nameB, surface: surface, on: connection)
+            let taOdds = try? await loadTennisAbstractOdds(playerA: nameA, playerB: nameB, surface: nil)
 
             return PlayerComparison(
                 playerA: statsA,
@@ -251,8 +248,8 @@ struct ATPDatabase {
                 headToHeadMatches: headToHeadMatches,
                 taA: taOdds?.oddsA,
                 taB: taOdds?.oddsB,
-                mpA: mpOdds?.oddsA,
-                mpB: mpOdds?.oddsB
+                codexA: nil,
+                codexB: nil
             )
         }
     }
@@ -834,35 +831,8 @@ struct ATPDatabase {
         }
     }
 
-    private func loadTennisAbstractOdds(playerA: String, playerB: String, surface: TennisSurface) async throws -> TennisAbstractOdds {
+    private func loadTennisAbstractOdds(playerA: String, playerB: String, surface: TennisSurface?) async throws -> TennisAbstractOdds {
         try await TennisAbstractOddsClient.shared.loadOdds(playerA: playerA, playerB: playerB, surface: surface)
-    }
-
-    private func loadMPOdds(playerA: String, playerB: String, surface: TennisSurface, on connection: MySQLConnection) async throws -> MPOdds {
-        let rows = try await connection.query(
-            """
-            SELECT
-                PLAYER_WIN_FACTOR(PLAYER_LOOKUP(?), PLAYER_LOOKUP(?), ?) AS win_factor_a
-            LIMIT 1
-            """,
-            [
-                MySQLData(string: playerA),
-                MySQLData(string: playerB),
-                MySQLData(string: surface.rawValue.capitalized)
-            ]
-        ).get()
-
-        guard let row = rows.first, let winFactorA = row.double("win_factor_a"), winFactorA > 0, winFactorA < 1 else {
-            throw ATPDatabaseError.missingWinFactor
-        }
-
-        let pricedA = winFactorA * 1.05
-        let pricedB = (1 - winFactorA) * 1.05
-
-        return MPOdds(
-            oddsA: pricedA > 0 ? roundOdds(1 / pricedA) : nil,
-            oddsB: pricedB > 0 ? roundOdds(1 / pricedB) : nil
-        )
     }
 
     private func withConnection<T>(_ work: (MySQLConnection) async throws -> T) async throws -> T {
@@ -891,11 +861,6 @@ struct ATPDatabase {
             throw error
         }
     }
-}
-
-private struct MPOdds {
-    let oddsA: Double?
-    let oddsB: Double?
 }
 
 private enum PlayerMatchFilter: String, CaseIterable {

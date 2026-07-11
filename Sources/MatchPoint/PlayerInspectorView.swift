@@ -289,7 +289,7 @@ struct PlayerInspectorOverviewGrid: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let columnWidth = max(136, (proxy.size.width - avatarWidth) / 7)
+            let columnWidth = min(170, max(136, (proxy.size.width - avatarWidth) / 7))
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     PlayerInspectorAvatarCell(stats: stats)
@@ -332,6 +332,7 @@ struct PlayerInspectorOverviewGrid: View {
             }
             .scrollIndicators(.visible)
         }
+        .frame(maxWidth: avatarWidth + (170 * 7), alignment: .leading)
         .frame(height: rowHeight * 3)
         .background(AppColors.panelBackground.opacity(0.22))
     }
@@ -456,13 +457,47 @@ struct PlayerInspectorAvatarCell: View {
 struct PlayerInspectorTitlesSection: View {
     let stats: PlayerDashboardStats?
 
+    private var titles: [(label: String, count: Int)] {
+        guard let stats else { return [] }
+
+        return [
+            ("Grand Slam", stats.grandSlamTitles),
+            ("Masters", stats.mastersTitles),
+            ("ATP-500", stats.atp500Titles),
+            ("ATP-250", stats.atp250Titles)
+        ]
+        .filter { $0.count > 0 }
+    }
+
+    @ViewBuilder
     var body: some View {
-        PlayerInspectorSection(title: "Titlar") {
-            PlayerInspectorGrid {
-                ProfileGridCell(label: "Grand Slam", value: stats.map { String($0.grandSlamTitles) } ?? "-")
-                ProfileGridCell(label: "Masters", value: stats.map { String($0.mastersTitles) } ?? "-")
-                ProfileGridCell(label: "ATP-500", value: stats.map { String($0.atp500Titles) } ?? "-")
-                ProfileGridCell(label: "ATP-250", value: stats.map { String($0.atp250Titles) } ?? "-")
+        if !titles.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                FieldLabel("Titlar")
+
+                HStack(spacing: 8) {
+                    ForEach(Array(titles.enumerated()), id: \.offset) { _, title in
+                        HStack(spacing: 6) {
+                            Text(String(title.count))
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(AppColors.heading)
+
+                            Text(title.label.uppercased())
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(AppColors.caption)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 38)
+                        .background(AppColors.tableRowBackground.opacity(0.58))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(AppColors.panelBorder.opacity(0.7), lineWidth: 1)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
             }
         }
     }

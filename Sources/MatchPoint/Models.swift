@@ -348,8 +348,8 @@ struct PlayerComparison: Equatable {
     let headToHeadMatches: [HeadToHeadMatch]
     let taA: Double?
     let taB: Double?
-    let mpA: Double?
-    let mpB: Double?
+    let codexA: Double?
+    let codexB: Double?
 }
 
 enum ComparisonSlot {
@@ -400,8 +400,8 @@ struct MatchDashboard: Equatable {
     let modelA: Double?
     let modelB: Double?
     let winFactorA: Double?
-    let mpA: Double?
-    let mpB: Double?
+    let codexA: Double?
+    let codexB: Double?
 
     var winFactorB: Double? {
         winFactorA.map { 1 - $0 }
@@ -421,8 +421,8 @@ struct MatchDashboard: Equatable {
             modelA: odds?.oddsA,
             modelB: odds?.oddsB,
             winFactorA: odds?.probabilityA,
-            mpA: mpA,
-            mpB: mpB
+            codexA: codexA,
+            codexB: codexB
         )
     }
 }
