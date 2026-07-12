@@ -1,5 +1,14 @@
 # Codex Context
 
+## Current Handoff — July 12, 2026
+
+- The native Match Point experiment is paused. Magnus currently wants to improve `vitel` and does not want Match Point to replace the web client.
+- Preserve the current `Matcher` / `Spelare` / `Favoriter` navigation, player drill-down/back flow, and the Favorites interaction where the two most recently selected players form the comparison.
+- Match Point is standalone at runtime and must not call `tennis.egelberg.se`.
+- Elo now comes from daily imported Tennis Abstract values, not Magnus' former local Elo calculation.
+- Odds terminology is `ODDSET`, `TA`, and `GPT` (not Svenska Spel, Vitel, or Codex). TA is pure stored Elo; GPT uses the same Elo plus backend model weighting. Hypothetical H2H without a real match/surface uses overall Elo only.
+- Do not resume broad product work automatically; treat this as a stable paused state unless Magnus explicitly returns to Match Point.
+
 ## Handoff July 10, 2026
 
 Match Point has found a strong personal workflow around `Favoriter`. Preserve
