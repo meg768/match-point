@@ -196,7 +196,7 @@ struct PlayerInspectorView: View {
         matchTabs = []
 
         do {
-            let profile = try await ATPDatabase(settings: SettingsStore.loadDatabaseSettings())
+            let profile = try await ATPDatabase(settings: SettingsStore.loadAPISettings())
                 .loadPlayerProfile(name: currentPage.lookupName, surface: currentPage.surface)
 
             guard !Task.isCancelled else {
@@ -212,7 +212,7 @@ struct PlayerInspectorView: View {
                 return
             }
 
-            loadError = "Kunde inte läsa spelarprofil från ATP-databasen."
+            loadError = "Kunde inte läsa spelarprofil från tennis-API:t."
             hasLoaded = true
         }
 

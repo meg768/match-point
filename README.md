@@ -1,23 +1,30 @@
 # Match Point
 
-Native macOS ATP tennis dashboard for Magnus' MariaDB ATP database.
+Native macOS ATP tennis client for `tennis.egelberg.se` — conceptually a Mac
+version of Vitel.
 
-This is a separate project from `tennis.egelberg.se`. It must not rely on that
-site/API at runtime; the ATP database is the source and is open for direct
-queries from the app.
+The app must use the backend API at `https://tennis.egelberg.se/api` for all
+tennis data. It must never connect directly to Magnus' MariaDB ATP database or
+ship database credentials. Database access and tennis-domain calculations are
+backend responsibilities.
+
+The API base can be overridden for local backend development with
+`TENNIS_API_URL`; production is the default. The first migration uses the
+backend's read-only query endpoint for existing detailed views and dedicated
+endpoints for Oddset and odds.
 
 First cut:
 
-- direct database connection to `pi-sql` / `atp`
+- backend-only tennis data through `https://tennis.egelberg.se/api`
 - live and upcoming ATP-family matches from Kambi/Svenska Spel Oddset
 - recent completed/imported matches
 - Tennis Abstract odds derived from TA Elo ratings
 - ATP ranking context
 - shared tennis themes with `Broker Explorer` and `LAN Scanner`
 
-Oddset fetching is implemented directly in this app. The project may borrow
-knowledge from `atp-tennis` and `oddset-mqtt`, but it does not depend on either
-repository at runtime.
+Oddset and Tennis Abstract access should also move behind the backend so the
+Mac app has one tennis-data boundary and does not duplicate server-owned data
+integration logic.
 
 ## Build
 

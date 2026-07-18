@@ -88,7 +88,7 @@ final class ScoreboardStore: ObservableObject {
     @Published var isLoading = false
     @Published var status: MatchPointStatus = .idle
 
-    private let databaseSettings = SettingsStore.loadDatabaseSettings()
+    private let apiSettings = SettingsStore.loadAPISettings()
 
     func refresh() {
         Task {
@@ -106,7 +106,7 @@ final class ScoreboardStore: ObservableObject {
 
         do {
             let matches = try await OddsetClient().loadMatches()
-            let enrichedMatches = (try? await ATPDatabase(settings: databaseSettings).enrichMatches(matches)) ?? matches
+            let enrichedMatches = (try? await ATPDatabase(settings: apiSettings).enrichMatches(matches)) ?? matches
             liveMatches = enrichedMatches
                 .filter { $0.state == .live }
                 .sorted { lhs, rhs in

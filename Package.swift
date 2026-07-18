@@ -10,15 +10,11 @@ let package = Package(
     products: [
         .executable(name: "MatchPoint", targets: ["MatchPoint"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.9.1")
-    ],
+    dependencies: [],
     targets: [
         .executableTarget(
             name: "MatchPoint",
-            dependencies: [
-                .product(name: "MySQLNIO", package: "mysql-nio")
-            ],
+            dependencies: [],
             resources: [
                 .process("../../Resources")
             ]

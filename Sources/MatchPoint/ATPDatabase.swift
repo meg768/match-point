@@ -1,16 +1,10 @@
 import Foundation
-import MySQLNIO
-import NIOCore
-import NIOPosix
 
 enum ATPDatabaseError: LocalizedError {
-    case invalidHost
     case missingWinFactor
 
     var errorDescription: String? {
         switch self {
-        case .invalidHost:
-            return "Ogiltig databashost eller port."
         case .missingWinFactor:
             return "Modellen kunde inte beräkna vinstfaktor för den här matchen."
         }
@@ -18,7 +12,7 @@ enum ATPDatabaseError: LocalizedError {
 }
 
 struct ATPDatabase {
-    let settings: DatabaseSettings
+    let settings: APISettings
 
     func loadSnapshot() async throws -> (matches: [TennisMatch], rankings: [RankedPlayer]) {
         try await withConnection { connection in
@@ -836,30 +830,7 @@ struct ATPDatabase {
     }
 
     private func withConnection<T>(_ work: (MySQLConnection) async throws -> T) async throws -> T {
-        guard let socketAddress = try? SocketAddress.makeAddressResolvingHost(settings.host, port: settings.port) else {
-            throw ATPDatabaseError.invalidHost
-        }
-
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        let connection = try await MySQLConnection.connect(
-            to: socketAddress,
-            username: settings.user,
-            database: settings.database,
-            password: settings.password.isEmpty ? nil : settings.password,
-            tlsConfiguration: nil,
-            on: group.next()
-        ).get()
-
-        do {
-            let result = try await work(connection)
-            try await connection.close().get()
-            try await group.shutdownGracefully()
-            return result
-        } catch {
-            try? await connection.close().get()
-            try? await group.shutdownGracefully()
-            throw error
-        }
+        try await work(MySQLConnection(client: TennisAPIClient(settings: settings)))
     }
 }
 

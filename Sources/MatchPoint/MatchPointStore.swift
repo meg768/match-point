@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class MatchPointStore: ObservableObject {
-    @Published var databaseSettings = SettingsStore.loadDatabaseSettings()
+    @Published var apiSettings = SettingsStore.loadAPISettings()
     @Published var matches: [TennisMatch] = []
     @Published var oddsetMatches: [OddsetMatch] = []
     @Published var rankings: [RankedPlayer] = []
@@ -211,8 +211,8 @@ final class MatchPointStore: ObservableObject {
         }
     }
 
-    func saveDatabaseSettings() {
-        SettingsStore.save(databaseSettings: databaseSettings)
+    func saveAPISettings() {
+        SettingsStore.save(apiSettings: apiSettings)
         dashboardCache.removeAll()
     }
 
@@ -245,7 +245,7 @@ final class MatchPointStore: ObservableObject {
 
         isLoadingIntelligence = true
         do {
-            let database = ATPDatabase(settings: databaseSettings)
+            let database = ATPDatabase(settings: apiSettings)
             intelligence = try await database.loadIntelligence(match: match, surface: selectedSurface)
             isLoadingIntelligence = false
         } catch {
@@ -281,7 +281,7 @@ final class MatchPointStore: ObservableObject {
 
         isLoadingDashboard = true
 
-        let database = ATPDatabase(settings: databaseSettings)
+        let database = ATPDatabase(settings: apiSettings)
         var hasOverview = false
         let startedAt = Date()
 
@@ -345,7 +345,7 @@ final class MatchPointStore: ObservableObject {
         isLoadingPlayers = true
 
         do {
-            let database = ATPDatabase(settings: databaseSettings)
+            let database = ATPDatabase(settings: apiSettings)
             let players = try await database.searchPlayers(query: query)
             guard playerSearchGeneration == generation else {
                 return
@@ -401,7 +401,7 @@ final class MatchPointStore: ObservableObject {
         isLoadingPlayerProfile = true
 
         do {
-            let profile = try await ATPDatabase(settings: databaseSettings)
+            let profile = try await ATPDatabase(settings: apiSettings)
                 .loadPlayerProfile(name: requestedPlayerID, surface: requestedSurface)
             guard playerProfileGeneration == generation, selectedPlayerID == requestedPlayerID, selectedSurface == requestedSurface else {
                 return
@@ -452,7 +452,7 @@ final class MatchPointStore: ObservableObject {
         isLoadingComparison = true
 
         do {
-            let comparison = try await ATPDatabase(settings: databaseSettings)
+            let comparison = try await ATPDatabase(settings: apiSettings)
                 .loadPlayerComparison(playerA: playerAID, playerB: playerBID, surface: requestedSurface)
             guard comparisonGeneration == generation,
                   comparePlayerA.player == playerAID,
@@ -493,7 +493,7 @@ final class MatchPointStore: ObservableObject {
 
     private func loadDatabaseSnapshot() async -> Result<(matches: [TennisMatch], rankings: [RankedPlayer]), Error> {
         do {
-            let database = ATPDatabase(settings: databaseSettings)
+            let database = ATPDatabase(settings: apiSettings)
             return .success(try await database.loadSnapshot())
         } catch {
             return .failure(error)
@@ -503,7 +503,7 @@ final class MatchPointStore: ObservableObject {
     private func loadOddsetMatches() async -> Result<[OddsetMatch], Error> {
         do {
             let matches = try await OddsetClient().loadMatches()
-            let database = ATPDatabase(settings: databaseSettings)
+            let database = ATPDatabase(settings: apiSettings)
             return .success((try? await database.enrichMatches(matches)) ?? matches)
         } catch {
             return .failure(error)

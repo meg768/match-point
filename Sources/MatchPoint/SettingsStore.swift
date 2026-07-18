@@ -2,11 +2,7 @@ import Foundation
 import CoreGraphics
 
 enum SettingsStore {
-    private static let databaseHostKey = "database.host"
-    private static let databasePortKey = "database.port"
-    private static let databaseNameKey = "database.name"
-    private static let databaseUserKey = "database.user"
-    private static let databasePasswordKey = "database.password"
+    private static let apiBaseURLKey = "api.baseURL"
     private static let appearanceModeKey = "ui.appearanceMode"
     private static let surfaceThemeKey = "ui.surfaceTheme"
     private static let surfaceModeKey = "model.surfaceMode"
@@ -15,24 +11,14 @@ enum SettingsStore {
     private static let modePanelWidthKeyPrefix = "ui.modePanelWidth"
     private static let favoritePlayersKey = "players.favorites"
 
-    static func loadDatabaseSettings() -> DatabaseSettings {
+    static func loadAPISettings() -> APISettings {
         let env = loadEnvironment()
-
-        return DatabaseSettings(
-            host: UserDefaults.standard.string(forKey: databaseHostKey) ?? env["MYSQL_HOST"] ?? "pi-sql",
-            port: UserDefaults.standard.integer(forKey: databasePortKey).nonZero ?? Int(env["MYSQL_PORT"] ?? "") ?? 3306,
-            database: UserDefaults.standard.string(forKey: databaseNameKey) ?? env["MYSQL_DATABASE"] ?? "atp",
-            user: UserDefaults.standard.string(forKey: databaseUserKey) ?? env["MYSQL_USER"] ?? "root",
-            password: nonEmpty(UserDefaults.standard.string(forKey: databasePasswordKey)) ?? env["MYSQL_PASSWORD"] ?? ""
-        )
+        let configured = UserDefaults.standard.string(forKey: apiBaseURLKey) ?? env["TENNIS_API_URL"] ?? "https://tennis.egelberg.se/api/"
+        return APISettings(baseURL: URL(string: configured) ?? URL(string: "https://tennis.egelberg.se/api/")!)
     }
 
-    static func save(databaseSettings: DatabaseSettings) {
-        UserDefaults.standard.set(databaseSettings.host, forKey: databaseHostKey)
-        UserDefaults.standard.set(databaseSettings.port, forKey: databasePortKey)
-        UserDefaults.standard.set(databaseSettings.database, forKey: databaseNameKey)
-        UserDefaults.standard.set(databaseSettings.user, forKey: databaseUserKey)
-        UserDefaults.standard.set(databaseSettings.password, forKey: databasePasswordKey)
+    static func save(apiSettings: APISettings) {
+        UserDefaults.standard.set(apiSettings.baseURL.absoluteString, forKey: apiBaseURLKey)
     }
 
     static func loadAppearanceMode() -> AppAppearanceMode {
@@ -191,11 +177,5 @@ enum SettingsStore {
         }
 
         return value
-    }
-}
-
-private extension Int {
-    var nonZero: Int? {
-        self == 0 ? nil : self
     }
 }

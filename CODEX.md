@@ -1,10 +1,50 @@
 # Codex Context
 
-## Current Handoff — July 12, 2026
+## Current Handoff — July 18, 2026
+
+- Product race principle confirmed 2026-07-18: Vitel remains the web-access
+  product and Magnus is already very satisfied with it. Match Point is not a
+  React/Tailwind screen-by-screen port and does not need feature parity. It is
+  a parallel Swift/macOS exploration using the same backend and source of truth
+  but deliberately taking a different, native approach. Let discoveries move
+  in both directions when either client finds a better workflow.
+- Match Point should earn its place through macOS strengths: dense persistent
+  workspaces, fast keyboard navigation, menus and commands, multiple windows,
+  native selection/focus, local favorites/history/state, drag and drop, and
+  fluid drill-down without web-page navigation. Do not add native mechanisms
+  merely as decoration; use them when they materially improve tennis analysis.
+- First backend-only migration completed on 2026-07-18: the Swift package no
+  longer depends on `MySQLNIO`, database credentials/settings are gone, and
+  Match Point uses `TennisAPIClient` with the production default
+  `https://tennis.egelberg.se/api/` (overridable with `TENNIS_API_URL`).
+- Oddset now comes exclusively from `GET /api/oddset`, and TA odds come from
+  `GET /api/odds`; the old direct Kambi and Tennis Abstract HTTP integrations
+  were removed from the app.
+- The existing `ATPDatabase` repository facade currently preserves Match
+  Point's mature UI/data mapping by sending its parameterized SELECT queries
+  through backend `POST /api/query`. It is no longer a database connection.
+  Replace these calls incrementally with purpose-built endpoints, but do not
+  reintroduce a database driver or credentials in the Mac app.
+- Magnus has resumed considering Match Point; it is no longer treated as fully
+  abandoned.
+- Match Point is now conceptually a native Mac version of Vitel.
+- All tennis data must go through the backend at
+  `https://tennis.egelberg.se/api`. The app must have no direct access to the
+  ATP MariaDB database and must not contain or request database credentials.
+- The backend owns database queries, tennis-domain calculations, Oddset, and
+  Tennis Abstract integration. Prefer purpose-built JSON endpoints over making
+  the Mac client a transport for arbitrary SQL.
+- `ATPDatabase.swift` retains its old name temporarily but is now an HTTP-backed
+  repository facade rather than a direct database client.
+- Preserve the existing native workflows and UI while replacing their data
+  source; do not redesign the product merely because the transport changes.
+
+## Previous Handoff — July 12, 2026
 
 - The native Match Point experiment is paused. Magnus currently wants to improve `vitel` and does not want Match Point to replace the web client.
 - Preserve the current `Matcher` / `Spelare` / `Favoriter` navigation, player drill-down/back flow, and the Favorites interaction where the two most recently selected players form the comparison.
-- Match Point is standalone at runtime and must not call `tennis.egelberg.se`.
+- Superseded 2026-07-18: Match Point was standalone at runtime and did not call
+  `tennis.egelberg.se`; it must now use that backend exclusively.
 - Elo now comes from daily imported Tennis Abstract values, not Magnus' former local Elo calculation.
 - Odds terminology is `ODDSET`, `TA`, and `GPT` (not Svenska Spel, Vitel, or Codex). TA is pure stored Elo; GPT uses the same Elo plus backend model weighting. Hypothetical H2H without a real match/surface uses overall Elo only.
 - Do not resume broad product work automatically; treat this as a stable paused state unless Magnus explicitly returns to Match Point.

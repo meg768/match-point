@@ -1,14 +1,10 @@
 import Foundation
 
-struct DatabaseSettings: Equatable {
-    var host: String
-    var port: Int
-    var database: String
-    var user: String
-    var password: String
+struct APISettings: Equatable {
+    var baseURL: URL
 
     var displayName: String {
-        "\(user)@\(host):\(port)/\(database)"
+        baseURL.absoluteString
     }
 }
 
@@ -257,7 +253,10 @@ struct PlayerDashboardStats: Identifiable, Equatable {
     let grassWins: Int
 
     var imageURL: URL? {
-        URL(string: "https://www.atptour.com/-/media/alias/player-headshot/\(id.lowercased())")
+        SettingsStore.loadAPISettings().baseURL
+            .appendingPathComponent("player")
+            .appendingPathComponent(id.lowercased())
+            .appendingPathComponent("headshot")
     }
 
     var totalLosses: Int { max(0, totalMatches - totalWins) }
